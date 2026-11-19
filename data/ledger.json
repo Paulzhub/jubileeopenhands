@@ -1,0 +1,20 @@
+{
+  "group": "Jubilee Open Hands",
+  "currency": "INR",
+  "monthlyDue": 500,
+  "members": [
+    { "id": "paulz", "name": "Paulz", "short": "Paulz", "initials": "PZ" },
+    { "id": "ms", "name": "MS", "short": "MS", "initials": "MS" },
+    { "id": "elis", "name": "Elis Chacha", "short": "Elis", "initials": "EC" },
+    { "id": "emma", "name": "Emma Zoliannu", "short": "Emma", "initials": "EZ" },
+    { "id": "james", "name": "Theologian James", "short": "James", "initials": "TJ" }
+  ],
+  "months": [
+    { "month": "2026-06", "paid": ["paulz", "ms", "elis", "emma", "james"] },
+    { "month": "2026-07", "paid": ["paulz", "ms", "elis", "emma", "james"] },
+    { "month": "2026-08", "paid": ["paulz", "ms", "elis", "emma", "james"] },
+    { "month": "2026-09", "paid": ["paulz", "ms", "elis", "emma", "james"] },
+    { "month": "2026-10", "paid": ["paulz", "ms", "elis", "emma", "james"] },
+    { "month": "2026-11", "paid": ["paulz", "ms", "elis", "emma"] }
+  ]
+}
