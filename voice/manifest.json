@@ -22,11 +22,16 @@
   "s5": {
     "src": "voice/s5.wav",
     "duration": 4.325,
-    "text": "Together, we now hold fourteen thousand, five hundred rupees."
+    "text": "Together, we collected fourteen thousand, five hundred rupees."
   },
   "s6": {
     "src": "voice/s6.wav",
-    "duration": 4.7,
-    "text": "Open hands, growing together. Scroll down to explore our numbers."
+    "duration": 10.175,
+    "text": "In November, we sponsored the U E S I Churachandpur Diamond Jubilee Celebration. One thousand rupees from each of us, five thousand in all."
+  },
+  "s7": {
+    "src": "voice/s7.wav",
+    "duration": 8.475,
+    "text": "That leaves nine thousand, five hundred rupees in our jar. Open hands, growing together. Scroll down to explore our numbers."
   }
 }
