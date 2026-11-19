@@ -3,8 +3,8 @@ import { $, $$, bus, store, prefs, fmtINR, clamp, easeOut, easeBack, cssVar } fr
 
 const VIEWS = {
   overview: { title: 'Who paid, every month', desc: 'Each column is one member in one month. Solid columns are paid; the hollow outline is a payment still to come.' },
-  monthly: { title: 'Monthly totals', desc: 'Five full months of ₹2,500, then ₹2,000 in November. The faint outline shows the ₹500 still expected.' },
-  growth: { title: 'The jar, growing', desc: 'Running total from June to November, climbing to the amount we hold today.' },
+  monthly: { title: 'Money in, money out', desc: 'Bars above the floor are what came in each month: five full months of ₹2,500, then ₹2,000 in November. The block below the floor is the ₹5,000 UESI sponsorship paid out.' },
+  growth: { title: 'The jar, growing', desc: 'The upper line is everything collected, climbing to ₹14,500. The lower line is the balance in the jar, which drops to ₹9,500 after the November sponsorship.' },
   share: { title: 'Who put in what', desc: 'Each slice is one member’s contribution. Hover to lift a slice, click to focus that member across the page.' },
   collection: { title: 'Collection rate', desc: 'Share of the money expected so far that is already in the jar. The glowing gap is the amount outstanding.' },
   heatmap: { title: 'Payment heatmap', desc: 'Months across, members down. Raised tiles are paid; the sunken glowing tile is pending.' },
@@ -43,13 +43,13 @@ export async function initCharts({ D, webgl, toast }) {
       else li.innerHTML = inner;
       legendEl.append(li);
     };
-    if (view === 'monthly') { add({ c: cssVar('--paid') }, 'All five paid', '5 months'); add({ c: cssVar('--accent') }, 'Partly paid', 'Nov'); add({ cls: 'sw--stripe' }, 'Still expected', fmtINR(D.outstanding)); }
-    else if (view === 'growth') { add({ c: cssVar('--brand') }, 'Running total', fmtINR(D.total)); add({ c: cssVar('--accent') }, 'Added in Nov', fmtINR(D.months.at(-1).total)); }
+    if (view === 'monthly') { add({ c: cssVar('--paid') }, 'All five paid', '5 months'); add({ c: cssVar('--accent') }, 'Partly paid', 'Nov'); add({ cls: 'sw--stripe' }, 'Still expected', fmtINR(D.outstanding)); add({ c: cssVar('--accent-ink') }, 'Sponsorship paid out', '−' + fmtINR(D.spent)); }
+    else if (view === 'growth') { add({ c: cssVar('--accent') }, 'Collected', fmtINR(D.total)); add({ c: cssVar('--brand-ink') }, 'Balance in jar', fmtINR(D.balance)); add({ c: cssVar('--accent-ink') }, 'Sponsorship', '−' + fmtINR(D.spent)); }
     else if (view === 'collection') { add({ c: cssVar('--brand') }, 'Collected', fmtINR(D.total)); add({ cls: 'sw--stripe' }, 'Outstanding', fmtINR(D.outstanding)); }
     else D.members.forEach(m => add({ c: m.color }, m.name, fmtINR(m.amount), m.id));
     // accessible table
-    const rows = D.months.map(mo => `<tr><th scope="row">${mo.name}</th>${D.members.map(m => `<td>${mo.paid.includes(m.id) ? 'Paid' : 'Pending'}</td>`).join('')}<td>${fmtINR(mo.total)}</td><td>${fmtINR(mo.cum)}</td></tr>`).join('');
-    tableEl.innerHTML = `<table><caption>${v.title}. Contributions of ${fmtINR(D.due)} per member per month.</caption><tr><th>Month</th>${D.members.map(m => `<th>${m.name}</th>`).join('')}<th>Month total</th><th>Running total</th></tr>${rows}<tr><th>Per member</th>${D.members.map(m => `<td>${fmtINR(m.amount)}</td>`).join('')}<td colspan="2">${fmtINR(D.total)} of ${fmtINR(D.expected)} (${(D.rate * 100).toFixed(1)}%)</td></tr></table>`;
+    const rows = D.months.map(mo => `<tr><th scope="row">${mo.name}</th>${D.members.map(m => `<td>${mo.paid.includes(m.id) ? 'Paid' : 'Pending'}</td>`).join('')}<td>${fmtINR(mo.total)}</td><td>${fmtINR(mo.cum)}</td><td>${mo.spent ? '−' + fmtINR(mo.spent) : '—'}</td><td>${fmtINR(mo.balance)}</td></tr>`).join('');
+    tableEl.innerHTML = `<table><caption>${v.title}. Contributions of ${fmtINR(D.due)} per member per month.</caption><tr><th>Month</th>${D.members.map(m => `<th>${m.name}</th>`).join('')}<th>Month total</th><th>Collected so far</th><th>Paid out</th><th>Balance</th></tr>${rows}<tr><th>Per member</th>${D.members.map(m => `<td>${fmtINR(m.amount)} in, ${fmtINR(m.sponsored)} sponsored</td>`).join('')}<td colspan="4">${fmtINR(D.total)} collected of ${fmtINR(D.expected)} (${(D.rate * 100).toFixed(1)}%), ${fmtINR(D.spent)} paid out, ${fmtINR(D.balance)} in hand</td></tr></table>`;
     flyBtn.hidden = view !== 'growth' || !three;
   }
 
@@ -190,7 +190,8 @@ export async function initCharts({ D, webgl, toast }) {
       },
       monthly() {
         const group = new THREE.Group(), picks = [], anim = [];
-        const max = D.due * nM, H = 4.2;
+        const H = 3.6, max = Math.max(D.due * nM, ...D.months.map(m => m.spent));
+        const full = D.due * nM / max * H;
         D.months.forEach((mo, i) => {
           const h = mo.total / max * H, x = (i - (nMo - 1) / 2) * 1.7;
           const geo = new RoundedBoxGeometry(1.2, h, 1.2, 4, .16);
@@ -199,17 +200,25 @@ export async function initCharts({ D, webgl, toast }) {
           mesh.userData = { tip: `<b>${mo.name} ${mo.year}</b><br>${fmtINR(mo.total)} · ${mo.paid.length} of ${nM} paid` };
           group.add(mesh); picks.push(mesh); anim.push({ mesh, h, delay: i * .08 });
           if (!mo.full) {
-            const g2 = new RoundedBoxGeometry(1.22, H, 1.22, 2, .16);
+            const g2 = new RoundedBoxGeometry(1.22, full, 1.22, 2, .16);
             const ghost = new THREE.LineSegments(new THREE.EdgesGeometry(g2, 30), new THREE.LineDashedMaterial({ color: cssVar('--accent-ink'), dashSize: .14, gapSize: .1 }));
-            ghost.computeLineDistances(); ghost.position.set(x, H / 2, 0); group.add(ghost);
-            const lw = label(`${fmtINR(D.due * (nM - mo.paid.length))} expected`, 'lbl--warn'); lw.position.set(x, H + .5, 0); group.add(lw);
+            ghost.computeLineDistances(); ghost.position.set(x, full / 2, 0); group.add(ghost);
+            const lw = label(`${fmtINR(D.due * (nM - mo.paid.length))} expected`, 'lbl--warn'); lw.position.set(x, full + .9, 0); group.add(lw);
           }
           const v = label(fmtINR(mo.total)); v.position.set(x, h + .35, 0); mesh.userData.lbl = v; group.add(v);
           const n = label(mo.short, 'lbl--muted'); n.position.set(x, 0, 1.1); group.add(n);
+          if (mo.spent) {
+            const d = mo.spent / max * H;
+            const out = new THREE.Mesh(new RoundedBoxGeometry(1.2, d, 1.2, 4, .16), mat(cssVar('--accent-ink'), { emissive: new THREE.Color(cssVar('--accent-ink')), emissiveIntensity: .35, transparent: true, opacity: .92 }));
+            out.position.set(x, -d / 2, 0);
+            out.userData = { tip: `<b>${mo.expenses.map(e => e.title).join(', ')}</b><br>−${fmtINR(mo.spent)} (${fmtINR(mo.expenses[0].perMember)} × ${mo.expenses[0].members.length}) · balance ${fmtINR(mo.balance)}` };
+            group.add(out); picks.push(out); anim.push({ mesh: out, h: -d, delay: .7 });
+            const ol = label(`−${fmtINR(mo.spent)} sponsorship`, 'lbl--warn'); ol.position.set(x + 1.6, -d / 2, 0); out.userData.lbl = ol; group.add(ol);
+          }
         });
         return {
-          group, picks, cam: [0, 5.5, 13.5], target: [0, 1.8, 0],
-          tick(t) { anim.forEach(({ mesh, h, delay }) => { const s = Math.max(.001, easeBack(clamp((t - delay) / .8, 0, 1))); mesh.scale.y = s; mesh.position.y = h * s / 2; mesh.userData.lbl.position.y = h * s + .35; }); },
+          group, picks, cam: [0, 3.2, 15], target: [0, 0, 0],
+          tick(t) { anim.forEach(({ mesh, h, delay }) => { const s = Math.max(.001, easeBack(clamp((t - delay) / .8, 0, 1))); mesh.scale.y = s; mesh.position.y = h * s / 2; if (h > 0) mesh.userData.lbl.position.y = h * s + .35; }); },
         };
       },
       growth() {
@@ -223,9 +232,23 @@ export async function initCharts({ D, webgl, toast }) {
         const curve = new THREE.CatmullRomCurve3(pts.map(p => p.clone().add(new THREE.Vector3(0, 0, .42))), false, 'centripetal');
         const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 120, .07, 12, false), new THREE.MeshStandardMaterial({ color: cssVar('--accent'), emissive: cssVar('--accent'), emissiveIntensity: .9 }));
         group.add(tube);
+        // balance line (after money paid out)
+        const bpts = D.months.map((mo, i) => new THREE.Vector3(pts[i].x, mo.balance / D.total * H + .1, .9));
+        const bcurve = new THREE.CatmullRomCurve3(bpts, false, 'centripetal');
+        const btube = new THREE.Mesh(new THREE.TubeGeometry(bcurve, 120, .06, 12, false), new THREE.MeshStandardMaterial({ color: cssVar('--brand-ink'), emissive: cssVar('--brand-ink'), emissiveIntensity: .5 }));
+        group.add(btube);
+        D.months.forEach((mo, i) => {
+          if (!mo.spent) return;
+          const bs = new THREE.Mesh(new THREE.SphereGeometry(.18, 24, 16), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: cssVar('--brand-ink'), emissiveIntensity: .7 }));
+          bs.position.copy(bpts[i]); bs.userData = { tip: `<b>Balance, end of ${mo.name}</b><br>${fmtINR(mo.balance)} after −${fmtINR(mo.spent)} sponsorship` };
+          group.add(bs); picks.push(bs);
+          const bl = label(`Balance ${fmtINR(mo.balance)}`, 'lbl--warn'); bl.position.copy(bpts[i]).add(new THREE.Vector3(0, -.5, 0)); group.add(bl);
+        });
+        btube.geometry.setDrawRange(0, 0);
+        const bcount = btube.geometry.index.count;
         pts.forEach((p, i) => {
           const s = new THREE.Mesh(new THREE.SphereGeometry(.16, 24, 16), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: cssVar('--accent'), emissiveIntensity: .6 }));
-          s.position.copy(p).add(new THREE.Vector3(0, 0, .42)); s.userData = { tip: `<b>End of ${D.months[i].name}</b><br>${fmtINR(D.months[i].cum)} in the jar` };
+          s.position.copy(p).add(new THREE.Vector3(0, 0, .42)); s.userData = { tip: `<b>End of ${D.months[i].name}</b><br>${fmtINR(D.months[i].cum)} collected so far` };
           group.add(s); picks.push(s);
           const l = label(fmtINR(D.months[i].cum)); l.position.copy(s.position).add(new THREE.Vector3(0, .45, 0)); group.add(l);
           const n = label(D.months[i].short, 'lbl--muted'); n.position.set(p.x, 0, 1); group.add(n);
@@ -234,7 +257,7 @@ export async function initCharts({ D, webgl, toast }) {
         const count = tube.geometry.index.count;
         return {
           group, picks, cam: [-2, 4, 11], target: [0, 2, 0], curve,
-          tick(t) { const u = easeOut(clamp(t / 1.6, 0, 1)); tube.geometry.setDrawRange(0, Math.floor(count * u / 6) * 6); area.scale.y = Math.max(.001, u); },
+          tick(t) { const u = easeOut(clamp(t / 1.6, 0, 1)), ub = easeOut(clamp((t - .6) / 1.6, 0, 1)); tube.geometry.setDrawRange(0, Math.floor(count * u / 6) * 6); btube.geometry.setDrawRange(0, Math.floor(bcount * ub / 6) * 6); area.scale.y = Math.max(.001, u); },
         };
       },
       share() {
@@ -247,7 +270,7 @@ export async function initCharts({ D, webgl, toast }) {
           const mesh = new THREE.Mesh(new THREE.ExtrudeGeometry(s, { depth: .7, bevelEnabled: true, bevelSize: .05, bevelThickness: .05, bevelSegments: 3, curveSegments: 48 }), mat(memberColor(i)));
           mesh.rotation.x = -Math.PI / 2; mesh.castShadow = true;
           const mid = (a0 + a1) / 2;
-          mesh.userData = { member: m.id, mid, lift: 0, tip: `<b>${m.name}</b><br>${fmtINR(m.amount)} · ${(m.amount / D.total * 100).toFixed(1)}%` };
+          mesh.userData = { member: m.id, mid, lift: 0, tip: `<b>${m.name}</b><br>${fmtINR(m.amount)} paid in · ${(m.amount / D.total * 100).toFixed(1)}%<br>${fmtINR(m.sponsored)} sponsored · ${fmtINR(m.net)} in jar` };
           const l = label(`${m.short} ${(m.amount / D.total * 100).toFixed(1)}%`); l.position.set(Math.cos(mid) * (R + .9), .4, -Math.sin(mid) * (R + .9)); group.add(l);
           group.add(mesh); picks.push(mesh); a0 = a1;
           return mesh;

@@ -7,6 +7,8 @@ const ICONS = {
   jar: '<svg viewBox="0 0 24 24"><path d="M8 3h8M7 6h10l-1 2v11a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V8z"/><path d="M10 13h4"/></svg>',
   rate: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
   cal: '<svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>',
+  gift: '<svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="5" rx="1.5"/><path d="M5 13v7h14v-7M12 8v12M12 8c-2-4-6-4-6-1.5S10 8 12 8zM12 8c2-4 6-4 6-1.5S14 8 12 8z"/></svg>',
+  coins: '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg>',
   people: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20a6 6 0 0 1 12 0M14 20a4.5 4.5 0 0 1 7.5-3.4"/></svg>',
   check: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
 };
@@ -25,15 +27,26 @@ export function computeLedger(L) {
       num: d.getMonth() + 1, year: d.getFullYear(),
     };
   });
+  // expenses / investments paid out of the jar
+  const spentBy = {};
+  const expenses = (L.expenses || []).map(x => {
+    const d = new Date(x.month + '-01T00:00:00');
+    const amount = x.perMember * x.members.length;
+    spentBy[x.month] = (spentBy[x.month] || 0) + amount;
+    return { ...x, amount, monthName: d.toLocaleString('en-IN', { month: 'long' }), year: d.getFullYear() };
+  });
+  let spentRun = 0;
+  months.forEach(m => { m.spent = spentBy[m.key] || 0; spentRun += m.spent; m.spentCum = spentRun; m.balance = m.cum - spentRun; m.expenses = expenses.filter(x => x.month === m.key); });
   const members = L.members.map((mem, idx) => {
     const paid = months.map(m => m.paid.includes(mem.id));
+    const sponsored = expenses.reduce((a, x) => a + (x.members.includes(mem.id) ? x.perMember : 0), 0);
     let cur = 0; for (let i = paid.length - 1; i >= 0 && paid[i]; i--) cur++;
     let best = 0, r = 0; paid.forEach(p => { r = p ? r + 1 : 0; best = Math.max(best, r); });
     const missed = months.filter((m, i) => !paid[i]).map(m => m.name);
-    return { ...mem, color: MEMBER_COLORS[idx % MEMBER_COLORS.length], paid, amount: paid.filter(Boolean).length * due, streak: cur, best, missed };
+    return { ...mem, color: MEMBER_COLORS[idx % MEMBER_COLORS.length], paid, amount: paid.filter(Boolean).length * due, sponsored, net: paid.filter(Boolean).length * due - sponsored, streak: cur, best, missed };
   });
   const expected = months.length * ids.length * due;
-  return { group: L.group, due, months, members, total: run, expected, outstanding: expected - run, rate: run / expected };
+  return { group: L.group, due, months, members, expenses, total: run, spent: spentRun, balance: run - spentRun, expected, outstanding: expected - run, rate: run / expected };
 }
 
 /* ---------------- loader ---------------- */
@@ -57,18 +70,53 @@ function setLoad(p) {
   $('#loaderPct').textContent = Math.round(loadPct * 100);
   $('#loaderBar').style.width = (loadPct * 100) + '%';
 }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+/* Curtain wipe: two layers rise, the label is revealed and held long enough to read,
+   `mid` runs while the screen is covered, then the layers lift away. */
+const wipeEl = $('#wipe');
+// Wait for an animation, but never longer than its own length: navigation must not
+// depend on frames being painted (background tabs, throttled timers).
+const settle = (anim, ms) => Promise.race([anim.finished.catch(() => {}), sleep(ms + 120)]);
+let wiping = null;
+export function wipe(label, sub, mid, hold = 900) {
+  if (wiping) return wiping;
+  if (prefs.reduced) { mid?.(); bus.emit('wipe:out'); return Promise.resolve(); }
+  const a = $('.wipe__a', wipeEl), b = $('.wipe__b', wipeEl), big = $('#wipeLabel'), small = $('#wipeSub');
+  big.textContent = label; small.textContent = sub || '';
+  const ease = 'cubic-bezier(.65,0,.35,1)', out = 'cubic-bezier(.22,1,.36,1)';
+  wiping = (async () => {
+    wipeEl.classList.add('is-on');
+    a.animate([{ transform: 'translateY(100%)' }, { transform: 'translateY(0)' }], { duration: 700, easing: ease, fill: 'forwards' });
+    await settle(b.animate([{ transform: 'translateY(100%)' }, { transform: 'translateY(0)' }], { duration: 700, delay: 120, easing: ease, fill: 'forwards' }), 820);
+    big.animate([{ clipPath: 'inset(0 0 100% 0)', transform: 'translateY(48px)' }, { clipPath: 'inset(-8px -8px -16px -8px)', transform: 'none' }], { duration: 640, easing: out, fill: 'forwards' });
+    small.animate([{ opacity: 0, transform: 'translateY(16px)' }, { opacity: 1, transform: 'none' }], { duration: 480, delay: 160, easing: out, fill: 'forwards' });
+    try { await mid?.(); } catch (err) { console.error(err); }
+    await sleep(hold + 640);
+    big.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 240, fill: 'forwards' });
+    small.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 240, fill: 'forwards' });
+    await sleep(160);
+    bus.emit('wipe:out');
+    b.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(-100%)' }], { duration: 800, easing: ease, fill: 'forwards' });
+    await settle(a.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(-100%)' }], { duration: 800, delay: 140, easing: ease, fill: 'forwards' }), 940);
+    [a, b, big, small].forEach(x => x.getAnimations().forEach(an => an.cancel()));
+    wipeEl.classList.remove('is-on');
+    wiping = null;
+  })();
+  return wiping;
+}
+
 function finishLoad() {
   if (loadDone) return; loadDone = true;
   setLoad(1);
-  const go = () => {
-    loader.classList.add(prefs.reduced ? 'is-done' : 'is-wiping');
-    setTimeout(() => { loader.classList.add('is-done'); bus.emit('ready'); }, prefs.reduced ? 0 : 400);
-    setTimeout(() => loader.remove(), prefs.reduced ? 300 : 1100);
-  };
-  setTimeout(go, prefs.reduced ? 0 : 240);
+  if (prefs.reduced) { loader.remove(); bus.emit('ready'); return; }
+  // Hold the finished loading screen so it can be read, then a long curtain carrying the name.
+  setTimeout(() => {
+    const off = bus.on('wipe:out', () => { off(); bus.emit('ready'); });
+    wipe('Jubilee Open Hands', 'Saving together since June 2026', () => { loader.remove(); }, 1300);
+  }, 900);
 }
-// Never hold people longer than 2.5s; let them skip.
-setTimeout(finishLoad, 2500);
+// Never hold people longer than 3s waiting for assets; let them skip.
+setTimeout(finishLoad, 3000);
 ['keydown', 'pointerdown'].forEach(t => addEventListener(t, () => { if (loadPct > .2) finishLoad(); }, { once: true }));
 
 /* ---------------- theme ---------------- */
@@ -128,7 +176,7 @@ addEventListener('scroll', hideTip, { passive: true });
 
 /* ---------------- nav ---------------- */
 const nav = $('#nav'), pill = $('.nav__pill'), links = $$('[data-link]');
-const sectionMap = [['explainer', '#top'], ['insights', '#insights'], ['members', '#members'], ['ledger', '#ledger']];
+const sectionMap = [['explainer', '#top'], ['insights', '#insights'], ['members', '#members'], ['expenses', '#expenses'], ['ledger', '#ledger']];
 let activeLink = null;
 function movePill(a) {
   if (!a) { pill.style.opacity = 0; return; }
@@ -165,7 +213,21 @@ function setSheet(open) {
   else { sheet.classList.remove('is-open'); setTimeout(() => { if (menuBtn.getAttribute('aria-expanded') === 'false') sheet.hidden = true; }, 480); }
 }
 menuBtn.addEventListener('click', () => setSheet(menuBtn.getAttribute('aria-expanded') !== 'true'));
-sheet.addEventListener('click', e => { if (e.target.closest('a')) setSheet(false); });
+// Menu-bar navigation: a curtain wipe carrying the section's name, then land on the section.
+document.addEventListener('click', e => {
+  const a = e.target.closest('#nav a[href^="#"], #sheet a[href^="#"]');
+  if (!a || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+  const target = $(a.getAttribute('href')); if (!target) return;
+  e.preventDefault();
+  if (a.closest('#sheet')) setSheet(false);
+  const go = () => {
+    target.scrollIntoView({ behavior: 'instant', block: 'start' });
+    if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+    target.focus({ preventScroll: true });
+    try { history.replaceState(null, '', a.getAttribute('href') === '#top' ? location.pathname : a.getAttribute('href')); } catch {}
+  };
+  wipe(a.dataset.name || a.textContent.trim(), a.dataset.sub || 'Jubilee Open Hands', go);
+});
 
 /* ---------------- headline reveal ---------------- */
 const title = $('#heroTitle');
@@ -185,7 +247,8 @@ $$('.line', title).forEach(line => {
   });
 });
 if (!prefs.reduced) title.classList.add('is-pre');
-bus.on('ready', () => requestAnimationFrame(() => {
+let readyFired = false;
+bus.on('ready', () => !readyFired && (readyFired = true) && requestAnimationFrame(() => {
   title.classList.remove('is-pre');
   // restore normal hover speed after the intro settles
   setTimeout(() => $$('.ch', title).forEach(s => s.style.transitionDelay = '0ms'), 1800);
@@ -324,10 +387,10 @@ function initTilt(el) {
 function renderKPIs(D) {
   const pct = v => (v * 100).toFixed(1) + '%';
   const items = [
-    { icon: ICONS.jar, label: 'Total in hand', to: D.total, fmt: v => fmtINR(Math.round(v)), sub: `of ${fmtINR(D.expected)} expected so far` },
-    { icon: ICONS.rate, label: 'Collection rate', to: D.rate, fmt: v => pct(v), sub: `${fmtINR(D.outstanding)} outstanding` },
-    { icon: ICONS.cal, label: 'Months running', to: D.months.length, fmt: v => String(Math.round(v)), sub: `${D.months[0].short} – ${D.months.at(-1).short} ${D.months.at(-1).year}` },
-    { icon: ICONS.people, label: 'Members', to: D.members.length, fmt: v => String(Math.round(v)), sub: `${fmtINR(D.due)} each, every month` },
+    { icon: ICONS.jar, label: 'In hand', to: D.balance, fmt: v => fmtINR(Math.round(v)), sub: `after ${fmtINR(D.spent)} given out` },
+    { icon: ICONS.coins, label: 'Collected', to: D.total, fmt: v => fmtINR(Math.round(v)), sub: `${D.months.length} months · ${D.members.length} members · ${fmtINR(D.due)} each` },
+    { icon: ICONS.gift, label: 'Sponsored', to: D.spent, fmt: v => fmtINR(Math.round(v)), sub: D.expenses.map(x => x.title.replace(' Celebration', '')).join(', ') || 'Nothing yet' },
+    { icon: ICONS.rate, label: 'Collection rate', to: D.rate, fmt: v => pct(v), sub: `${fmtINR(D.outstanding)} of dues outstanding` },
   ];
   const grid = $('#kpis'); grid.innerHTML = '';
   items.forEach((it, i) => {
@@ -354,18 +417,51 @@ function renderMembers(D) {
     card.className = 'mcard reveal'; card.tabIndex = 0; card.dataset.member = m.id;
     const pending = m.missed.length ? `<span class="badge badge--pending" data-tip="${m.missed.join(', ')} payment of ${fmtINR(D.due)} not received yet" tabindex="0">${m.missed.map(x => x.slice(0, 3)).join(', ')} pending</span>` : '';
     const streak = m.streak ? `<span class="badge">${m.streak}-month streak</span>` : `<span class="badge">Best streak ${m.best}</span>`;
-    card.setAttribute('aria-label', `${m.name}: contributed ${fmtINR(m.amount)}. ${m.missed.length ? m.missed.join(', ') + ' pending.' : 'All months paid.'}`);
+    card.setAttribute('aria-label', `${m.name}: paid in ${fmtINR(m.amount)}, sponsored ${fmtINR(m.sponsored)}, ${fmtINR(m.net)} still in the jar. ${m.missed.length ? m.missed.join(', ') + ' pending.' : 'All months paid.'}`);
     card.innerHTML = `
-      <div class="preview" aria-hidden="true"><ul>${D.months.map((mo, k) => `<li><span>${mo.short}</span><span class="${m.paid[k] ? '' : 'no'}">${m.paid[k] ? '✅ ' + fmtINR(D.due) : 'Pending'}</span></li>`).join('')}</ul></div>
+      <div class="preview" aria-hidden="true"><ul>${D.months.map((mo, k) => `<li><span>${mo.short}</span><span class="${m.paid[k] ? '' : 'no'}">${m.paid[k] ? '✅ ' + fmtINR(D.due) : 'Pending'}</span></li>`).join('')}${m.sponsored ? `<li class="full"><span>Sponsorship</span><span class="no">−${fmtINR(m.sponsored)}</span></li>` : ''}</ul></div>
       <div class="mcard__frame" style="--c:${m.color}"><div class="mcard__orb"><span aria-hidden="true">${m.initials}</span></div></div>
       <div><h3 class="mcard__name"><span class="wave">${m.name}</span></h3></div>
       <div class="mcard__row"><span class="mcard__amt">${fmtINR(m.amount)}</span><span class="dots" aria-hidden="true">${m.paid.map(p => `<i class="${p ? '' : 'no'}"></i>`).join('')}</span></div>
+      <p class="mcard__meta"><span>Sponsored <b>${fmtINR(m.sponsored)}</b></span><span>In jar <b>${fmtINR(m.net)}</b></span></p>
       <div class="mcard__row">${streak}${pending}</div>`;
     grid.append(card);
     splitLetters($('.wave', card));
     card.addEventListener('click', e => { if (e.target.closest('.badge--pending')) return; bus.emit('filter', { id: store.get().filter === m.id ? null : m.id }); });
     card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); } });
     reveal(card, i);
+  });
+}
+
+/* ---------------- render: investments & expenses ---------------- */
+function renderExpenses(D) {
+  const grid = $('#expGrid'); grid.innerHTML = '';
+  const flow = document.createElement('article');
+  flow.className = 'exp-flow reveal';
+  const rows = [
+    { label: 'Collected', v: D.total, cls: 'in', off: 0 },
+    { label: 'Given out', v: -D.spent, cls: 'out', off: D.balance / D.total },
+    { label: 'In hand', v: D.balance, cls: 'net', off: 0 },
+  ];
+  flow.innerHTML = `<h3 class="exp-flow__title">Money in, money out</h3>
+    <ol class="exp-flow__rows">${rows.map((r, i) => `<li class="exp-flow__row exp-flow__row--${r.cls}" style="--w:${Math.abs(r.v) / D.total};--off:${r.off};--i:${i}">
+      <span class="exp-flow__label">${r.label}</span><span class="exp-flow__track"><i></i></span><b>${r.v < 0 ? '−' : ''}${fmtINR(Math.abs(r.v))}</b></li>`).join('')}</ol>
+    <p class="exp-flow__note">${fmtINR(D.spent)} of the ${fmtINR(D.total)} we collected (${Math.round(D.spent / D.total * 100)}%) has gone back into our community.</p>`;
+  grid.append(flow); reveal(flow, 0);
+  bus.on('revealed', ({ el }) => el === flow && flow.classList.add('is-drawn'));
+  if (prefs.reduced) flow.classList.add('is-drawn');
+  const byId = Object.fromEntries(D.members.map(m => [m.id, m]));
+  D.expenses.forEach((x, i) => {
+    const c = document.createElement('article');
+    c.className = 'exp-card reveal';
+    c.innerHTML = `<div class="exp-card__top"><span class="badge">${x.kind}</span><span class="exp-card__date">${x.monthName} ${x.year}</span></div>
+      <div class="exp-card__icon" aria-hidden="true">${ICONS.gift}</div>
+      <h3 class="exp-card__title">${x.title}</h3>
+      <p class="exp-card__amt">${fmtINR(x.amount)}</p>
+      <p class="exp-card__sub">${fmtINR(x.perMember)} from each of us, paid from the jar</p>
+      <ul class="exp-card__who">${x.members.map(id => `<li data-tip="${byId[id].name}: ${fmtINR(x.perMember)}"><span class="mini-orb" style="--c:${byId[id].color}" aria-hidden="true">${byId[id].initials}</span><span class="sr-only">${byId[id].name}: ${fmtINR(x.perMember)}</span></li>`).join('')}</ul>
+      <p class="exp-card__status"><span aria-hidden="true">✅</span> Paid</p>`;
+    grid.append(c); initTilt(c); reveal(c, i + 1);
   });
 }
 
@@ -381,13 +477,16 @@ function renderLedger(D) {
       <button class="month__btn" aria-expanded="false" aria-controls="mb-${i}" data-cursor="Open">
         <span class="month__top"><span class="month__name">${mo.name}</span><span class="month__yr">${String(mo.num).padStart(2, '0')} · ${mo.year}</span></span>
         <span class="month__total">${fmtINR(mo.total)}</span>
+        ${mo.spent ? `<span class="month__spend">−${fmtINR(mo.spent)} · ${mo.expenses.map(x => x.kind).join(', ')}</span>` : ''}
         <span class="month__status"><span>${mo.full ? `<span class="full-mark">✅ All ${mo.paid.length} paid</span>` : `${mo.paid.length} of ${D.members.length} paid`}</span>
         <span class="month__chev" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span></span>
       </button>
       <div class="month__body" id="mb-${i}" role="region" aria-label="${mo.name} payments"><div>
         <ul class="month__list">
           ${D.members.map((m, k) => `<li style="--i:${k}"><span>${m.name}</span>${mo.paid.includes(m.id) ? '<span class="ok">✅ ₹500</span>' : '<span class="no">Pending</span>'}</li>`).join('')}
-          <li style="--i:${D.members.length}"><b>Running total</b><b>${fmtINR(mo.cum)}</b></li>
+          ${mo.expenses.map((x, k) => `<li style="--i:${D.members.length + k}" class="spend"><span>${x.kind}: ${x.title}</span><span class="no">−${fmtINR(x.amount)}</span></li>`).join('')}
+          <li style="--i:${D.members.length + 1}"><b>Collected so far</b><b>${fmtINR(mo.cum)}</b></li>
+          <li style="--i:${D.members.length + 2}"><b>Balance in jar</b><b>${fmtINR(mo.balance)}</b></li>
         </ul>
       </div></div></div>`;
     track.append(li);
@@ -397,7 +496,7 @@ function renderLedger(D) {
       btn.setAttribute('aria-expanded', open);
       $('.month__card', li).classList.toggle('is-full-open', open && mo.full);
       if (open && mo.full) confetti(btn);
-      if (open) live(`${mo.name}: ${mo.paid.length} of ${D.members.length} paid, ${fmtINR(mo.total)}.${missing.length ? ' Pending: ' + missing.map(m => m.name).join(', ') + '.' : ''}`);
+      if (open) live(`${mo.name}: ${mo.paid.length} of ${D.members.length} paid, ${fmtINR(mo.total)}. Balance ${fmtINR(mo.balance)}.${missing.length ? ' Pending: ' + missing.map(m => m.name).join(', ') + '.' : ''}`);
       bus.emit('ledger:resize');
     });
     reveal(li, i % 3);
@@ -419,7 +518,8 @@ function initLedgerPin(D) {
     const cards = $$('.month', move);
     const w = move.scrollWidth, h = 150;
     svg.setAttribute('viewBox', `0 0 ${w} ${h}`); svg.style.width = w + 'px'; svg.style.height = h + 'px';
-    const pts = cards.map((c, i) => [c.offsetLeft + c.offsetWidth / 2, h - 16 - (D.months[i].cum / D.total) * (h - 40)]);
+    const top = Math.max(...D.months.map(m => m.balance));
+    const pts = cards.map((c, i) => [c.offsetLeft + c.offsetWidth / 2, h - 16 - (D.months[i].balance / top) * (h - 40)]);
     path.setAttribute('d', pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' '));
     len = path.getTotalLength(); path.style.strokeDasharray = len;
     onScroll();
@@ -489,7 +589,6 @@ addEventListener('keydown', e => {
 });
 
 /* ---------------- boot ---------------- */
-$('#year').textContent = new Date().getFullYear();
 const webgl = hasWebGL();
 if (!webgl) root.classList.add('no-webgl');
 
@@ -499,7 +598,7 @@ const ledgerP = track(fetch('data/ledger.json').then(r => { if (!r.ok) throw new
 ledgerP.then(raw => {
   const D = computeLedger(raw);
   store.set({ data: D });
-  renderKPIs(D); renderMembers(D); renderLedger(D);
+  renderKPIs(D); renderMembers(D); renderExpenses(D); renderLedger(D);
   // explainer (player works without WebGL; the 3D stage is optional)
   track(import('./explainer.js').then(m => m.initExplainer({ D, webgl, toast })), 3);
   // background orbs

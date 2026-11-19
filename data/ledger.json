@@ -16,5 +16,15 @@
     { "month": "2026-09", "paid": ["paulz", "ms", "elis", "emma", "james"] },
     { "month": "2026-10", "paid": ["paulz", "ms", "elis", "emma", "james"] },
     { "month": "2026-11", "paid": ["paulz", "ms", "elis", "emma"] }
+  ],
+  "expenses": [
+    {
+      "id": "uesi-ccpur-diamond-jubilee",
+      "month": "2026-11",
+      "kind": "Sponsorship",
+      "title": "UESI Churachandpur Diamond Jubilee Celebration",
+      "perMember": 1000,
+      "members": ["paulz", "ms", "elis", "emma", "james"]
+    }
   ]
 }

@@ -1,21 +1,23 @@
 // Hero: a narrated 3D motion explainer driven by a single timeline clock.
-import { $, $$, bus, store, prefs, fmtINR, clamp, lerp, easeOut, easeInOut, cssVar } from './core.js';
+import { $, $$, bus, store, prefs, fmtINR, clamp, easeOut, easeInOut, cssVar } from './core.js';
 
 const CHAPTERS = [
   { id: 's1', title: 'Meet the circle', min: 6 },
   { id: 's2', title: 'Five hands, ₹500 each', min: 7 },
   { id: 's3', title: 'June to October', min: 10 },
   { id: 's4', title: 'November', min: 5 },
-  { id: 's5', title: 'The jar today', min: 6 },
-  { id: 's6', title: 'Growing together', min: 6.5 },
+  { id: 's5', title: 'What we collected', min: 5.5 },
+  { id: 's6', title: 'Giving back', min: 11.5 },
+  { id: 's7', title: 'Growing together', min: 9.5 },
 ];
 const FALLBACK_TEXT = {
   s1: 'This is Jubilee Open Hands. Five friends who decided to save together.',
   s2: 'Paulz, MS, Elis, Emma, and James each put in five hundred rupees, every month.',
   s3: 'From June to October, every single member paid. Twenty five hundred rupees, every month.',
   s4: 'In November, four of five payments came in.',
-  s5: 'Together, we now hold fourteen thousand, five hundred rupees.',
-  s6: 'Open hands, growing together. Scroll down to explore our numbers.',
+  s5: 'Together, we collected fourteen thousand, five hundred rupees.',
+  s6: 'In November, we sponsored the UESI Churachandpur Diamond Jubilee Celebration. One thousand rupees from each of us, five thousand in all.',
+  s7: 'That leaves nine thousand, five hundred rupees in our jar. Open hands, growing together. Scroll down to explore our numbers.',
 };
 
 export async function initExplainer({ D, webgl, toast }) {
@@ -27,7 +29,7 @@ export async function initExplainer({ D, webgl, toast }) {
   const timeline = CHAPTERS.map(c => {
     const v = manifest?.[c.id];
     const dur = Math.max(c.min, v ? v.duration + 1.4 : 0);
-    const seg = { ...c, start: t0, dur, text: v?.text || FALLBACK_TEXT[c.id], voice: v ? { src: v.src, duration: v.duration, delay: .4 } : null };
+    const seg = { ...c, start: t0, dur, text: FALLBACK_TEXT[c.id] || v?.text, voice: v ? { src: v.src, duration: v.duration, delay: .4 } : null };
     t0 += dur; return seg;
   });
   const TOTAL = t0;
@@ -48,7 +50,6 @@ export async function initExplainer({ D, webgl, toast }) {
   const fmtT = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
   const state = { time: 0, playing: false, speed: 1, cc: true, started: false, scene: -1 };
-  const speeds = [1, 1.25, 1.5];
 
   // ---- audio ----
   const voiceEl = new Audio(); voiceEl.preload = 'auto'; voiceEl.preservesPitch = true;
@@ -105,11 +106,59 @@ export async function initExplainer({ D, webgl, toast }) {
   $('#watchBtn').addEventListener('click', () => { player.scrollIntoView({ behavior: prefs.reduced ? 'auto' : 'smooth', block: 'center' }); play(); });
   bus.on('player:toggle', toggle);
   scrubInput.addEventListener('input', () => seek(scrubInput.value / 1000 * TOTAL));
-  $('#speedBtn').addEventListener('click', e => {
-    state.speed = speeds[(speeds.indexOf(state.speed) + 1) % speeds.length];
-    e.currentTarget.textContent = state.speed + '×'; e.currentTarget.setAttribute('aria-label', `Speed ${state.speed}x`);
+  $('#speedSel').addEventListener('change', e => {
+    state.speed = +e.target.value;
     voiceEl.playbackRate = state.speed;
+    toast(`Speed ${state.speed}×`);
   });
+
+  // ---- mini player: a draggable floating popover ----
+  const slot = $('#playerSlot'), ph = $('#playerPh'), handle = $('#playerHandle'), grip = $('#playerGrip');
+  let mini = false, pos = null;
+  function place() {
+    const r = player.getBoundingClientRect();
+    pos.x = clamp(pos.x, 8, Math.max(8, innerWidth - r.width - 8));
+    pos.y = clamp(pos.y, 8, Math.max(8, innerHeight - r.height - 8));
+    player.style.left = pos.x + 'px'; player.style.top = pos.y + 'px';
+  }
+  function setMini(on) {
+    if (on === mini) return;
+    if (on) ph.style.minHeight = player.offsetHeight + 'px';
+    mini = on;
+    player.classList.toggle('is-mini', on); handle.hidden = !on; ph.hidden = !on;
+    if (on) {
+      if (document.fullscreenElement) document.exitFullscreen?.();
+      const w = Math.min(360, innerWidth - 32);
+      pos = pos || { x: innerWidth - w - 24, y: innerHeight - 340 };
+      place();
+      if (!prefs.reduced) player.animate([{ opacity: 0, transform: 'translateY(24px) scale(.92)' }, { opacity: 1, transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.34,1.56,.64,1)' });
+      grip.focus({ preventScroll: true });
+      toast('Mini player on. Drag it anywhere');
+    } else {
+      player.style.left = player.style.top = '';
+      if (!prefs.reduced) player.animate([{ opacity: 0, transform: 'scale(.96)' }, { opacity: 1, transform: 'none' }], { duration: 360, easing: 'cubic-bezier(.22,1,.36,1)' });
+      $('#miniBtn').focus({ preventScroll: true });
+    }
+  }
+  $('#miniBtn').addEventListener('click', () => setMini(true));
+  $('#restoreBtn').addEventListener('click', () => setMini(false));
+  $('#restoreBtn2').addEventListener('click', () => setMini(false));
+  let drag = null;
+  grip.addEventListener('pointerdown', e => {
+    if (!mini) return;
+    e.preventDefault(); grip.setPointerCapture(e.pointerId);
+    drag = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
+    player.classList.add('is-dragging');
+  });
+  grip.addEventListener('pointermove', e => { if (!drag) return; pos.x = e.clientX - drag.dx; pos.y = e.clientY - drag.dy; place(); });
+  const endDrag = () => { drag = null; player.classList.remove('is-dragging'); };
+  grip.addEventListener('pointerup', endDrag); grip.addEventListener('pointercancel', endDrag);
+  grip.addEventListener('keydown', e => {
+    const step = e.shiftKey ? 64 : 24, mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+    if (!mv || !mini) return;
+    e.preventDefault(); pos.x += mv[0]; pos.y += mv[1]; place();
+  });
+  addEventListener('resize', () => mini && place());
   $('#ccBtn').addEventListener('click', e => {
     state.cc = !state.cc; player.classList.toggle('cc-off', !state.cc);
     e.currentTarget.setAttribute('aria-pressed', state.cc); e.currentTarget.setAttribute('aria-label', state.cc ? 'Captions on' : 'Captions off');
@@ -157,8 +206,7 @@ export async function initExplainer({ D, webgl, toast }) {
     scrubInput.value = Math.round(t / TOTAL * 1000);
     scrubInput.setAttribute('aria-valuetext', `${fmtT(t)} of ${fmtT(TOTAL)}, ${seg.title}`);
     timeLabel.textContent = fmtT(t);
-    const landed = three ? three.landedAt(state.started ? t : timeline[4].start + 1) : coinsLanded(D, timeline, state.started ? t : TOTAL);
-    jarCount.textContent = fmtINR(landed * D.due);
+    jarCount.textContent = fmtINR(jarAt(D, timeline, state.started ? t : TOTAL) * D.due);
   }
   let idle = 0;
   ['pointerdown', 'wheel'].forEach(t => stage.addEventListener(t, () => { idle = 0; }, { passive: true }));
@@ -197,7 +245,19 @@ function coinPlan(D, timeline) {
   });
   return coins;
 }
-function coinsLanded(D, timeline, t) { return coinPlan(D, timeline).filter(c => t >= c.land).length; }
+// Coins (₹500 each) that leave the jar for each expense, during the "Giving back" scene.
+function outPlan(D, timeline, plan) {
+  const s6 = timeline[5], n = Math.round(D.spent / D.due), out = [];
+  for (let k = 0; k < n && k < plan.length; k++) {
+    const launch = s6.start + 2.2 + k * .38;
+    out.push({ idx: plan.length - 1 - k, launch, land: launch + 1.1 });
+  }
+  return out;
+}
+function jarAt(D, timeline, t) {
+  const plan = coinPlan(D, timeline);
+  return plan.filter(c => t >= c.land).length - outPlan(D, timeline, plan).filter(o => t >= o.land).length;
+}
 
 async function build3D(stage, D, timeline) {
   const THREE = await import('three');
@@ -269,6 +329,24 @@ async function build3D(stage, D, timeline) {
   const pendEl = document.createElement('div'); pendEl.className = 'lbl lbl--warn'; pendEl.textContent = 'Nov pending';
   const pendLbl = new CSS2DObject(pendEl); ghost.add(pendLbl); pendLbl.position.set(0, -.55, 0);
 
+  // sponsorship gift (UESI Churachandpur Diamond Jubilee)
+  const out = outPlan(D, timeline, plan), outByIdx = new Map(out.map(o => [o.idx, o]));
+  const gift = new THREE.Group(); gift.position.set(3.6, -.4, .2); scene.add(gift);
+  const boxMat = new THREE.MeshStandardMaterial({ color: 0x874844, roughness: .35, metalness: .1, emissive: 0x874844, emissiveIntensity: .25 });
+  const ribbonMat = new THREE.MeshStandardMaterial({ color: 0xEEF3F3, roughness: .3, metalness: .3, emissive: 0x97B3B6, emissiveIntensity: .3 });
+  const box = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1, 1.3), boxMat); gift.add(box);
+  const lid = new THREE.Mesh(new THREE.BoxGeometry(1.45, .22, 1.45), boxMat); lid.position.y = .6; gift.add(lid);
+  [[1.47, .26, .18], [.18, .26, 1.47], [1.32, 1.02, .16], [.16, 1.02, 1.32]].forEach(([x, y, z], i) => {
+    const r = new THREE.Mesh(new THREE.BoxGeometry(x, y, z), ribbonMat); r.position.y = i < 2 ? .6 : 0; gift.add(r);
+  });
+  const giftGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xB88F7A, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+  giftGlow.scale.setScalar(4); gift.add(giftGlow);
+  const giftEl = document.createElement('div'); giftEl.className = 'lbl'; giftEl.innerHTML = 'UESI Churachandpur<br>Diamond Jubilee';
+  const giftLbl = new CSS2DObject(giftEl); giftLbl.position.set(0, 1.4, 0); gift.add(giftLbl);
+  const giftAmtEl = document.createElement('div'); giftAmtEl.className = 'lbl lbl--warn'; giftAmtEl.textContent = '₹0';
+  const giftAmt = new CSS2DObject(giftAmtEl); giftAmt.position.set(0, -.85, 0); gift.add(giftAmt);
+  const giftLocal = gift.position.clone().sub(jar.position).add(new THREE.Vector3(0, .5, 0));
+
   // ambient dust
   const dustGeo = new THREE.BufferGeometry(), dn = 260, dp = new Float32Array(dn * 3);
   for (let i = 0; i < dn; i++) { dp[i * 3] = (Math.random() - .5) * 22; dp[i * 3 + 1] = (Math.random() - .5) * 12; dp[i * 3 + 2] = -10 + Math.random() * 12; }
@@ -299,7 +377,8 @@ async function build3D(stage, D, timeline) {
     [new THREE.Vector3(2.8, 3, 9.6), new THREE.Vector3(0, .4, 0)],
     [new THREE.Vector3(-2.6, 2.4, 9.2), new THREE.Vector3(0, .4, 0)],
     [new THREE.Vector3(0, 1.4, 6.6), new THREE.Vector3(0, -.2, .4)],
-    [new THREE.Vector3(0, 5.2, 12.5), new THREE.Vector3(0, .4, 0)],
+    [new THREE.Vector3(2.2, 2.2, 9.4), new THREE.Vector3(1.8, -.2, .3)],
+    [new THREE.Vector3(0, 5.2, 13), new THREE.Vector3(.6, .2, 0)],
   ];
   const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpE = new THREE.Euler(), one = new THREE.Vector3(1, 1, 1), zero = new THREE.Vector3(0, 0, 0);
   const camPos = new THREE.Vector3(), camTgt = new THREE.Vector3();
@@ -307,7 +386,7 @@ async function build3D(stage, D, timeline) {
   let wasPlaying = false;
 
   function orbPos(i, t) {
-    const s1 = timeline[0], s6 = timeline[5];
+    const s1 = timeline[0], s6 = timeline[6];
     const inP = easeOut(clamp((t - s1.start - .3 - i * .35) / 2.4, 0, 1));
     const p = far[i].clone().lerp(arc(i), inP);
     p.y += Math.sin(t * 1.3 + i) * .08;
@@ -341,20 +420,38 @@ async function build3D(stage, D, timeline) {
         p = start.clone().multiplyScalar((1 - e) ** 2).add(ctrl.multiplyScalar(2 * (1 - e) * e)).add(end.clone().multiplyScalar(e * e));
         tmpE.set(u * 9, u * 4, 0);
       } else { p = end; landed++; tmpE.set(0, i * .7, 0); }
+      const o = outByIdx.get(i);
+      if (o && t >= o.launch) {
+        const v = clamp((t - o.launch) / (o.land - o.launch), 0, 1);
+        if (v >= 1) { tmpM.compose(zero, tmpQ.identity(), zero); coins.setMatrixAt(i, tmpM); return; }
+        const e = easeInOut(v);
+        const ctrl = new THREE.Vector3((end.x + giftLocal.x) / 2, 2.6, (end.z + giftLocal.z) / 2);
+        p = end.clone().multiplyScalar((1 - e) ** 2).add(ctrl.multiplyScalar(2 * (1 - e) * e)).add(giftLocal.clone().multiplyScalar(e * e));
+        tmpE.set(v * 8, v * 5, 0);
+      }
       tmpQ.setFromEuler(tmpE); tmpM.compose(p, tmpQ, one); coins.setMatrixAt(i, tmpM);
     });
     coins.instanceMatrix.needsUpdate = true;
+    // gift appears for "Giving back" and stays
+    const gIn = easeOut(clamp((t - timeline[5].start - .3) / 1.2, 0, 1));
+    gift.scale.setScalar(Math.max(.001, gIn)); gift.rotation.y = Math.sin(t * .6) * .25;
+    giftEl.style.opacity = gIn; giftAmtEl.style.opacity = gIn;
+    const given = out.filter(o => t >= o.land).length;
+    giftAmtEl.textContent = fmtINR(given * D.due) + ' given';
+    const pulse = out.some(o => t >= o.land && t < o.land + .4);
+    giftGlow.material.opacity = gIn * (pulse ? .9 : .35);
+    lid.position.y = .6 + (pulse ? .12 : 0);
     // pending ghost slot near James in November onwards
     const g0 = ghostCoins[0];
     if (g0) {
-      const vis = si >= 3 && si < 5 ? clamp((t - timeline[3].start - 1.5) / .6, 0, 1) : si === 5 ? clamp(1 - (t - timeline[5].start) / 1, 0, 1) : 0;
+      const vis = si >= 3 && si < 6 ? clamp((t - timeline[3].start - 1.5) / .6, 0, 1) : si === 6 ? clamp(1 - (t - timeline[6].start) / 1, 0, 1) : 0;
       ghost.material.opacity = vis * (.6 + Math.sin(t * 4) * .3);
       pendEl.style.opacity = vis;
       ghost.position.copy(orbPos(g0.k, t)).add(new THREE.Vector3(0, -.9, .3));
       ghost.rotation.set(Math.PI / 2 + Math.sin(t) * .2, 0, t * .8);
     }
     // jar glow in scene 5
-    const glowAmt = si === 4 ? easeOut(clamp(local / 1.5, 0, 1)) : si === 5 ? .6 : 0;
+    const glowAmt = si === 4 ? easeOut(clamp(local / 1.5, 0, 1)) : si >= 5 ? .5 : 0;
     jarLight.intensity = glowAmt * 6; jarLight.color.set(cssVar('--accent'));
     jar.rotation.y = Math.sin(t * .3) * .05;
     dust.rotation.y = idle * .02;
@@ -364,7 +461,7 @@ async function build3D(stage, D, timeline) {
       const blend = easeInOut(clamp((local - (seg.dur - 1.6)) / 1.6, 0, 1));
       camPos.copy(poses[si][0]).lerp(poses[next][0], blend);
       camTgt.copy(poses[si][1]).lerp(poses[next][1], blend);
-      if (si === 5) { camPos.applyAxisAngle(new THREE.Vector3(0, 1, 0), local * .06); }
+      if (si === 6) { camPos.applyAxisAngle(new THREE.Vector3(0, 1, 0), local * .05); }
       camera.position.lerp(camPos, wasPlaying ? .08 : .04);
       controls.target.lerp(camTgt, .08);
       camera.lookAt(controls.target);
@@ -384,6 +481,5 @@ async function build3D(stage, D, timeline) {
   return {
     controls, draw,
     breath() { if (!prefs.reduced) fovKick = 2; },
-    landedAt: t => plan.filter(c => t >= c.land).length,
   };
 }
