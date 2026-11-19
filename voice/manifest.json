@@ -1,0 +1,32 @@
+{
+  "s1": {
+    "src": "voice/s1.wav",
+    "duration": 5.275,
+    "text": "This is Jubilee Open Hands. Five friends who decided to save together."
+  },
+  "s2": {
+    "src": "voice/s2.wav",
+    "duration": 6.025,
+    "text": "Paulz, M S, Elis, Emma, and James each put in five hundred rupees, every month."
+  },
+  "s3": {
+    "src": "voice/s3.wav",
+    "duration": 5.975,
+    "text": "From June to October, every single member paid. Twenty five hundred rupees, every month."
+  },
+  "s4": {
+    "src": "voice/s4.wav",
+    "duration": 3.1,
+    "text": "In November, four of five payments came in."
+  },
+  "s5": {
+    "src": "voice/s5.wav",
+    "duration": 4.325,
+    "text": "Together, we now hold fourteen thousand, five hundred rupees."
+  },
+  "s6": {
+    "src": "voice/s6.wav",
+    "duration": 4.7,
+    "text": "Open hands, growing together. Scroll down to explore our numbers."
+  }
+}

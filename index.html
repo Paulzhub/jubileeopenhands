@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- ARTIFACT:START -->
+<title>Jubilee Open Hands</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Jubilee Open Hands — a five-member savings group. Monthly contributions, totals and payment history.">
+<script>
+  // Resolve theme before first paint.
+  (function () {
+    var t = 'system';
+    try { t = localStorage.getItem('joh-theme') || 'system'; } catch (e) {}
+    if (t !== 'system') document.documentElement.setAttribute('data-theme', t);
+    document.documentElement.classList.add('js');
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300..900,0..100&family=JetBrains+Mono:wght@400..700&family=Manrope:wght@400..800&display=swap">
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<!-- ARTIFACT:HEAD-END -->
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- Loading screen -->
+<div class="loader" id="loader" aria-hidden="true">
+  <div class="loader__inner">
+    <svg class="loader__mono" viewBox="0 0 240 96" aria-hidden="true">
+      <path d="M40 16v48a16 16 0 0 1-32 0" />
+      <circle cx="104" cy="48" r="32" />
+      <path d="M168 16v64M168 48h56M224 16v64" />
+    </svg>
+    <div class="loader__meta"><span id="loaderPct">0</span><span>%</span></div>
+    <div class="loader__bar"><i id="loaderBar"></i></div>
+    <p class="loader__hint">Gathering the open hands…</p>
+  </div>
+  <div class="curtain curtain--a"></div>
+  <div class="curtain curtain--b"></div>
+</div>
+
+<canvas class="bg" id="bg" aria-hidden="true"></canvas>
+<div class="bg-fallback" aria-hidden="true"></div>
+<div class="grain" aria-hidden="true"></div>
+<div class="cursor" id="cursor" aria-hidden="true"><span class="cursor__dot"></span><span class="cursor__ring"><b class="cursor__label"></b></span></div>
+<canvas class="trail" id="trail" aria-hidden="true"></canvas>
+<div class="rail" aria-hidden="true"><i id="railFill"></i></div>
+
+<header class="nav" id="nav">
+  <div class="nav__inner">
+    <a class="nav__brand" href="#top" data-cursor="Top">
+      <span class="nav__logo" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="11" cy="16" r="7"/><circle cx="21" cy="16" r="7"/></svg></span>
+      <span class="nav__word">Jubilee Open Hands</span>
+    </a>
+    <nav class="nav__links" id="navLinks" aria-label="Sections">
+      <a href="#explainer" data-link="explainer"><span class="wave">Story</span></a>
+      <a href="#insights" data-link="insights"><span class="wave">Insights</span></a>
+      <a href="#members" data-link="members"><span class="wave">Members</span></a>
+      <a href="#ledger" data-link="ledger"><span class="wave">Ledger</span></a>
+      <i class="nav__pill" aria-hidden="true"></i>
+    </nav>
+    <div class="nav__tools">
+      <button class="icon-btn" id="soundBtn" aria-pressed="true" aria-label="Voiceover on" data-tip="Voiceover (M)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path class="sound-on" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/><path class="sound-off" d="M16 9l5 6M21 9l-5 6"/></svg>
+      </button>
+      <button class="icon-btn" id="themeBtn" aria-label="Theme: system" data-tip="Theme (T)">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <mask id="moonMask"><rect width="24" height="24" fill="#fff"/><circle class="moon-cut" cx="24" cy="4" r="8" fill="#000"/></mask>
+          <circle class="sun-core" cx="12" cy="12" r="5" mask="url(#moonMask)"/>
+          <g class="sun-rays"><path d="M12 1v3M12 20v3M1 12h3M20 12h3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></g>
+        </svg>
+        <span class="theme-mode" id="themeMode">A</span>
+      </button>
+      <button class="icon-btn nav__burger" id="menuBtn" aria-expanded="false" aria-controls="sheet" aria-label="Open menu">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path class="b1" d="M4 8h16"/><path class="b2" d="M4 16h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<div class="sheet" id="sheet" hidden>
+  <nav aria-label="Sections (menu)">
+    <a href="#explainer">Story</a><a href="#insights">Insights</a><a href="#members">Members</a><a href="#ledger">Ledger</a>
+  </nav>
+</div>
+
+<main id="main">
+  <!-- HERO -->
+  <section class="hero" id="top" aria-labelledby="heroTitle">
+    <div class="wrap hero__grid">
+      <div class="hero__copy">
+        <p class="eyebrow reveal">A savings circle · since June 2026</p>
+        <h1 class="hero__title" id="heroTitle" aria-label="Jubilee Open Hands">
+          <span class="line">JUBILEE</span>
+          <span class="line">OPEN HANDS</span>
+        </h1>
+        <p class="hero__lede reveal">Five friends. <strong>₹500</strong> each, every month. One shared jar that keeps growing.</p>
+        <div class="hero__ctas reveal">
+          <button class="btn btn--primary magnetic" id="watchBtn" data-cursor="Play"><span class="btn__label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>Watch the story</span></button>
+          <a class="btn btn--ghost magnetic" href="#insights" data-cursor="Go"><span class="btn__label">See the numbers<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"/></svg></span></a>
+        </div>
+      </div>
+
+      <figure class="player" id="explainer" aria-label="Story: a narrated 3D explainer">
+        <div class="player__stage" id="stage" data-cursor="Drag">
+          <canvas id="stageCanvas" aria-hidden="true"></canvas>
+          <div class="player__count" aria-hidden="true"><small>In the jar</small><b id="jarCount">₹0</b></div>
+          <div class="player__chapter" id="chapterLabel" aria-hidden="true">01 · Meet the circle</div>
+          <div class="player__caption" id="caption" aria-live="off"></div>
+          <button class="player__big magnetic" id="bigPlay" aria-label="Play story" data-cursor="Play"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>
+          <div class="skeleton player__skel" id="stageSkel"></div>
+          <p class="sound-hint" id="soundHint" hidden>Tap anywhere to turn on sound</p>
+        </div>
+        <div class="player__bar">
+          <button class="icon-btn" id="playBtn" aria-label="Play" data-tip="Play (Space)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path class="ic-play" d="M8 5v14l11-7z"/><path class="ic-pause" d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+          </button>
+          <div class="scrub" id="scrub">
+            <input type="range" id="scrubInput" min="0" max="1000" value="0" step="1" aria-label="Story position">
+            <div class="scrub__track"><i id="scrubFill"></i></div>
+            <div class="scrub__ticks" id="ticks"></div>
+          </div>
+          <span class="player__time" id="timeLabel">0:00</span>
+          <button class="chip-btn" id="speedBtn" aria-label="Speed 1x" data-tip="Speed">1×</button>
+          <button class="icon-btn" id="ccBtn" aria-pressed="true" aria-label="Captions on" data-tip="Captions">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="4"/><path d="M10 10.5a2 2 0 1 0 0 3M16 10.5a2 2 0 1 0 0 3"/></svg>
+          </button>
+          <button class="icon-btn" id="txBtn" aria-expanded="false" aria-controls="transcript" aria-label="Transcript" data-tip="Transcript">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h9l3 3v13H6z"/><path d="M9 11h6M9 15h6"/></svg>
+          </button>
+          <button class="icon-btn" id="fsBtn" aria-label="Fullscreen" data-tip="Fullscreen">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+          </button>
+        </div>
+        <div class="transcript" id="transcript" hidden><ol id="transcriptList"></ol></div>
+      </figure>
+    </div>
+    <a class="scroll-cue" href="#stats" aria-label="Scroll to numbers"><span></span></a>
+  </section>
+
+  <!-- STATS -->
+  <section class="stats" id="stats" aria-label="Key numbers">
+    <div class="wrap stats__grid" id="kpis">
+      <article class="kpi skeleton-host"><div class="skeleton kpi__skel"></div></article>
+      <article class="kpi skeleton-host"><div class="skeleton kpi__skel"></div></article>
+      <article class="kpi skeleton-host"><div class="skeleton kpi__skel"></div></article>
+      <article class="kpi skeleton-host"><div class="skeleton kpi__skel"></div></article>
+    </div>
+  </section>
+
+  <!-- INSIGHTS -->
+  <section class="insights" id="insights" aria-labelledby="insTitle">
+    <div class="wrap">
+      <header class="sec-head">
+        <p class="eyebrow">Insights</p>
+        <h2 class="sec-title clip" id="insTitle">Six ways to see the jar</h2>
+        <p class="sec-lede">Drag to orbit, scroll or pinch to zoom, hover a shape for its number.</p>
+      </header>
+      <div class="tabs" role="tablist" aria-label="Chart views" id="tabs">
+        <button role="tab" id="tab-overview" aria-controls="chartPanel" aria-selected="true" data-view="overview">Overview</button>
+        <button role="tab" id="tab-monthly" aria-controls="chartPanel" aria-selected="false" tabindex="-1" data-view="monthly">Monthly</button>
+        <button role="tab" id="tab-growth" aria-controls="chartPanel" aria-selected="false" tabindex="-1" data-view="growth">Growth</button>
+        <button role="tab" id="tab-share" aria-controls="chartPanel" aria-selected="false" tabindex="-1" data-view="share">Share</button>
+        <button role="tab" id="tab-collection" aria-controls="chartPanel" aria-selected="false" tabindex="-1" data-view="collection">Collection</button>
+        <button role="tab" id="tab-heatmap" aria-controls="chartPanel" aria-selected="false" tabindex="-1" data-view="heatmap">Heatmap</button>
+        <i class="tabs__ind" aria-hidden="true"></i>
+      </div>
+      <div class="chart" id="chartPanel" role="tabpanel" aria-labelledby="tab-overview">
+        <div class="chart__frame" id="chartFrame" data-cursor="Drag">
+          <div class="chart__canvas" id="chartCanvas"></div>
+          <div class="skeleton chart__skel" id="chartSkel"></div>
+          <div class="chart__tip" id="chartTip" role="status" hidden></div>
+          <button class="chart__activate" id="chartActivate" hidden>Tap to interact</button>
+          <div class="chart__fallback" id="chartFallback" hidden></div>
+        </div>
+        <div class="chart__side">
+          <div>
+            <h3 class="chart__title" id="chartTitle">Who paid, every month</h3>
+            <p class="chart__desc" id="chartDesc"></p>
+          </div>
+          <div class="filter-chip" id="filterChip" hidden></div>
+          <div class="chart__actions">
+            <button class="btn btn--small" id="resetView"><span class="btn__label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v5h5"/></svg>Reset view</span></button>
+            <button class="btn btn--small" id="flyBtn" hidden><span class="btn__label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/></svg>Fly through</span></button>
+            <button class="btn btn--small" id="snapBtn"><span class="btn__label"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="4"/><circle cx="12" cy="13.5" r="3.5"/><path d="M9 7l1.5-3h3L15 7"/></svg>Snapshot</span></button>
+          </div>
+          <ul class="legend" id="legend"></ul>
+        </div>
+        <div class="sr-only" id="chartTable"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MEMBERS -->
+  <section class="members" id="members" aria-labelledby="memTitle">
+    <div class="wrap">
+      <header class="sec-head">
+        <p class="eyebrow">Members</p>
+        <h2 class="sec-title clip" id="memTitle">The five open hands</h2>
+      </header>
+      <div class="members__grid" id="memberGrid">
+        <div class="mcard skeleton-host"><div class="skeleton mcard__skel"></div></div>
+        <div class="mcard skeleton-host"><div class="skeleton mcard__skel"></div></div>
+        <div class="mcard skeleton-host"><div class="skeleton mcard__skel"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LEDGER -->
+  <section class="ledger" id="ledger" aria-labelledby="ledTitle">
+    <div class="ledger__pin" id="ledgerPin">
+      <div class="wrap ledger__head">
+        <header class="sec-head">
+          <p class="eyebrow">Ledger</p>
+          <h2 class="sec-title clip" id="ledTitle">Month by month</h2>
+          <p class="sec-lede">Open a month to see who paid.</p>
+        </header>
+        <div class="ghost" aria-hidden="true"><span id="ghostNum">06</span></div>
+      </div>
+      <div class="ledger__viewport">
+        <div class="ledger__move" id="ledgerMove">
+          <svg class="ledger__line" id="ledgerLine" aria-hidden="true"><path id="ledgerPath"/></svg>
+          <ol class="ledger__track" id="ledgerTrack"></ol>
+        </div>
+      </div>
+    </div>
+    <noscript>
+      <div class="wrap"><table class="plain-table"><caption>Contributions (₹500 each)</caption>
+        <tr><th>Month</th><th>Paid</th><th>Total</th></tr>
+        <tr><td>June</td><td>All 5</td><td>₹2,500</td></tr><tr><td>July</td><td>All 5</td><td>₹2,500</td></tr>
+        <tr><td>August</td><td>All 5</td><td>₹2,500</td></tr><tr><td>September</td><td>All 5</td><td>₹2,500</td></tr>
+        <tr><td>October</td><td>All 5</td><td>₹2,500</td></tr><tr><td>November</td><td>4 of 5 (James pending)</td><td>₹2,000</td></tr>
+        <tr><th>Total in hand</th><td></td><th>₹14,500</th></tr></table></div>
+    </noscript>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="marquee" aria-hidden="true"><div class="marquee__track"><span>Open hands · open hearts · saving together · </span><span>Open hands · open hearts · saving together · </span><span>Open hands · open hearts · saving together · </span><span>Open hands · open hearts · saving together · </span></div></div>
+  <div class="wrap foot__row">
+    <p>© <span id="year">2026</span> Jubilee Open Hands</p>
+    <a class="btn btn--ghost btn--small magnetic" href="#top" data-cursor="Top"><span class="btn__label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>Back to top</span></a>
+  </div>
+</footer>
+
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+<div class="tooltip" id="tooltip" role="tooltip" hidden></div>
+<div class="live sr-only" id="live" aria-live="polite"></div>
+
+<dialog class="modal" id="snapModal" aria-labelledby="snapTitle">
+  <div class="modal__inner">
+    <h3 id="snapTitle">Snapshot</h3>
+    <p class="modal__hint">Right-click or long-press the image to save it.</p>
+    <img id="snapImg" alt="Snapshot of the current 3D chart">
+    <button class="btn btn--small" data-close><span class="btn__label">Close</span></button>
+  </div>
+</dialog>
+
+<dialog class="modal" id="keysModal" aria-labelledby="keysTitle">
+  <div class="modal__inner">
+    <h3 id="keysTitle">Keyboard shortcuts</h3>
+    <dl class="keys">
+      <dt><kbd>Space</kbd></dt><dd>Play or pause the story</dd>
+      <dt><kbd>T</kbd></dt><dd>Switch theme</dd>
+      <dt><kbd>M</kbd></dt><dd>Mute or unmute the voiceover</dd>
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Move between chart tabs (when focused)</dd>
+      <dt><kbd>Esc</kbd></dt><dd>Close dialogs, release the chart</dd>
+      <dt><kbd>?</kbd></dt><dd>Show this list</dd>
+    </dl>
+    <button class="btn btn--small" data-close><span class="btn__label">Got it</span></button>
+  </div>
+</dialog>
+
+<script type="module" src="js/main.js"></script>
+<!-- ARTIFACT:END -->
+</body>
+</html>
