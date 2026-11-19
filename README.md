@@ -25,6 +25,12 @@ Edit [`tools/narration.json`](tools/narration.json), then (with `kokoro-js@1.2.1
 node tools/gen-voice.mjs voice
 ```
 
+Then compress the clips to small MP3s (with `lamejs@1.2.1` installed); this also points `voice/manifest.json` at the `.mp3` files:
+
+```powershell
+node tools/wav-to-mp3.mjs voice --delete-wav
+```
+
 ## Build the claude.ai Artifact page
 
 ```powershell

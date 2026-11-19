@@ -288,7 +288,7 @@ main, .foot { position: relative; z-index: var(--z-content); }
 .scrub__track i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--brand), var(--accent)); }
 .scrub input:focus-visible ~ .scrub__track { outline: 2px solid var(--accent-ink); outline-offset: 4px; }
 .scrub__ticks i { position: absolute; top: 50%; width: 2px; height: 12px; margin-top: -6px; background: var(--text-2); opacity: .5; border-radius: 1px; }
-@media (max-width: 479px) { #fsBtn, #txBtn { display: none; } .player__time { display: none; } }
+@media (max-width: 479px) { #txBtn, #miniBtn { display: none; } .player__time { display: none; } }
 .player.cc-off #ccBtn { opacity: .55; }
 .transcript { margin-top: var(--s1); padding: var(--s2) var(--s3); border-radius: var(--r-lg); background: var(--surface-solid); box-shadow: inset 0 0 0 1px var(--line); max-height: 240px; overflow: auto; }
 .transcript ol { margin: 0; padding-left: var(--s3); display: grid; gap: var(--s1); }
@@ -597,3 +597,14 @@ kbd { display: inline-grid; place-items: center; min-width: 32px; height: 32px; 
 .player.is-mini .player__count { padding: 4px var(--s1); }
 .player.is-mini .player__count b { font-size: 16px; }
 .player.is-mini .player__big { width: 56px; height: 56px; margin: -28px 0 0 -28px; }
+
+/* ===== v3: fullscreen on every screen size ===== */
+#fsBtn .fs-out { display: none; }
+.player.is-fs #fsBtn .fs-in { display: none; }
+.player.is-fs #fsBtn .fs-out { display: inline; }
+.player.is-pfs { position: fixed; inset: 0; z-index: 85; width: auto; margin: 0; border-radius: 0; display: flex; flex-direction: column; background: var(--bg);
+  padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px)); }
+.player.is-pfs .player__stage, .player:fullscreen .player__stage { aspect-ratio: auto; flex: 1; min-height: 0; }
+.player.is-pfs .transcript { display: none; }
+html.pfs-lock, html.pfs-lock body { overflow: hidden; }
+html.pfs-lock .nav, html.pfs-lock .rail, html.pfs-lock body::before { visibility: hidden; }
