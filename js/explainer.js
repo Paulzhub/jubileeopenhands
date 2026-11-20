@@ -52,35 +52,70 @@ export async function initExplainer({ D, webgl, toast }) {
   const state = { time: 0, playing: false, speed: 1, cc: true, started: false, scene: -1 };
 
   // ---- audio ----
-  const voiceEl = new Audio(); voiceEl.preload = 'auto'; voiceEl.preservesPitch = true;
-  let unlocked = false, currentClip = null;
+  // ONE shared <audio> element plays every clip. Browsers (iPhone especially) only allow sound
+  // on an element that was started inside a tap, so we start it inside the Play tap and then
+  // only swap its source per scene. Clips are small MP3s, pre-downloaded into memory.
+  const voice = new Audio();
+  voice.preload = 'auto'; voice.preservesPitch = true; voice.setAttribute('playsinline', '');
+  const blobs = new Map();
+  timeline.forEach(s => {
+    if (!s.voice) return;
+    fetch(s.voice.src).then(r => (r.ok ? r.blob() : null)).then(b => { if (b) blobs.set(s.voice.src, URL.createObjectURL(b)); }).catch(() => {});
+  });
+  const srcFor = clip => blobs.get(clip.src) || clip.src;
+  let unlocked = false, activeIdx = -1, curSrc = null;
   const hint = $('#soundHint');
+  function setClip(clip) {
+    if (curSrc === clip.src) return false;
+    voice.src = srcFor(clip); curSrc = clip.src;
+    return true;
+  }
+  // Called inside every user gesture until sound is allowed (Play, the sound prompt, any tap).
   function unlock() {
-    if (unlocked) return; unlocked = true;
-    voiceEl.play().then(() => voiceEl.pause()).catch(() => {});
-    hint.hidden = true;
-    syncVoice(true);
+    if (unlocked) return;
+    const first = timeline.find(s => s.voice);
+    if (!first) return;
+    if (!curSrc) setClip(first.voice);
+    voice.muted = true;
+    const p = voice.play();
+    unlocked = true; hint.hidden = true;
+    Promise.resolve(p).then(() => {
+      if (activeIdx < 0) voice.pause();
+      voice.muted = false;
+      syncVoice(true);
+    }).catch(() => { voice.muted = false; unlocked = false; });
   }
-  ['pointerdown', 'keydown'].forEach(t => addEventListener(t, unlock, { once: true, capture: true }));
+  ['pointerdown', 'keydown', 'touchend'].forEach(t => addEventListener(t, () => { if (!unlocked) unlock(); }, { capture: true }));
+  hint.addEventListener('click', () => { unlock(); syncVoice(true); });
+  const pauseAll = () => { if (!voice.paused) voice.pause(); };
+  function voiceWindow() {
+    const si = segAt(state.time), seg = timeline[si], clip = seg.voice;
+    return { si, clip, el: clip && curSrc === clip.src ? voice : null, off: state.time - seg.start - (clip?.delay || 0) };
+  }
   function syncVoice(force) {
-    const seg = timeline[segAt(state.time)], clip = seg.voice;
-    const off = state.time - seg.start - (clip?.delay || 0);
-    if (!state.playing || !store.get().voice || !clip || off < 0 || off >= clip.duration) { if (!voiceEl.paused) voiceEl.pause(); return; }
+    const { si, clip, off } = voiceWindow();
+    const want = state.playing && store.get().voice && clip && off >= 0 && off < clip.duration;
+    if (!want) { pauseAll(); activeIdx = -1; return; }
     if (!unlocked) { hint.hidden = false; return; }
-    if (currentClip !== clip.src) { voiceEl.src = clip.src; currentClip = clip.src; force = true; }
-    voiceEl.playbackRate = state.speed;
-    if (force || Math.abs(voiceEl.currentTime - off) > .3) voiceEl.currentTime = off;
-    if (voiceEl.paused) voiceEl.play().catch(() => { hint.hidden = false; });
+    const fresh = setClip(clip);
+    // entering a clip (or seeking) lines it up with the story; otherwise leave it alone
+    if (fresh || force || activeIdx !== si) {
+      const seekTo = () => { if (Math.abs(voice.currentTime - off) > .15) try { voice.currentTime = off; } catch {} };
+      if (voice.readyState >= 1) seekTo(); else voice.addEventListener('loadedmetadata', seekTo, { once: true });
+    }
+    activeIdx = si;
+    voice.playbackRate = state.speed;
+    if (voice.paused) voice.play().catch(err => {
+      if (err && err.name === 'NotAllowedError') { unlocked = false; hint.hidden = false; }
+    });
   }
-  // prefetch clips
-  timeline.forEach(s => { if (s.voice) { const a = new Audio(); a.preload = 'auto'; a.src = s.voice.src; } });
 
   const soundBtn = $('#soundBtn');
   function setVoice(on) {
     store.set({ voice: on });
     soundBtn.setAttribute('aria-pressed', on); soundBtn.setAttribute('aria-label', on ? 'Voiceover on' : 'Voiceover off');
     try { localStorage.setItem('joh-voice', on ? '1' : '0'); } catch {}
-    if (!on) voiceEl.pause(); else syncVoice(true);
+    if (!on) pauseAll(); else { unlock(); syncVoice(true); }
   }
   try { if (localStorage.getItem('joh-voice') === '0') setVoice(false); } catch {}
   soundBtn.addEventListener('click', () => { const on = !store.get().voice; setVoice(on); toast(on ? 'Voiceover on' : 'Voiceover muted'); });
@@ -94,7 +129,7 @@ export async function initExplainer({ D, webgl, toast }) {
     syncVoice(true); setMedia();
   }
   function pause() {
-    state.playing = false; voiceEl.pause();
+    state.playing = false; pauseAll(); activeIdx = -1;
     player.classList.remove('is-playing'); playBtn.setAttribute('aria-label', 'Play');
     if (three) three.controls.enabled = true;
     setMedia();
@@ -108,7 +143,7 @@ export async function initExplainer({ D, webgl, toast }) {
   scrubInput.addEventListener('input', () => seek(scrubInput.value / 1000 * TOTAL));
   $('#speedSel').addEventListener('change', e => {
     state.speed = +e.target.value;
-    voiceEl.playbackRate = state.speed;
+    voice.playbackRate = state.speed;
     toast(`Speed ${state.speed}×`);
   });
 
@@ -166,9 +201,32 @@ export async function initExplainer({ D, webgl, toast }) {
   $('#txBtn').addEventListener('click', e => {
     const tx = $('#transcript'), open = tx.hidden; tx.hidden = !open; e.currentTarget.setAttribute('aria-expanded', open);
   });
-  $('#fsBtn').addEventListener('click', () => {
-    if (document.fullscreenElement) document.exitFullscreen?.();
-    else player.requestFullscreen?.().catch(() => toast('Fullscreen is not available here'));
+  // Fullscreen: the real API where it exists; on iPhone (no element fullscreen) or inside
+  // frames that refuse it, the player fills the window instead.
+  const fsBtn = $('#fsBtn');
+  const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+  function setFsUI(on) {
+    player.classList.toggle('is-fs', on);
+    fsBtn.setAttribute('aria-label', on ? 'Exit fullscreen' : 'Fullscreen'); fsBtn.dataset.tip = on ? 'Exit fullscreen' : 'Fullscreen';
+  }
+  function windowFs(on) {
+    player.classList.toggle('is-pfs', on);
+    document.documentElement.classList.toggle('pfs-lock', on);
+    setFsUI(on);
+  }
+  ['fullscreenchange', 'webkitfullscreenchange'].forEach(t => document.addEventListener(t, () => setFsUI(!!fsEl())));
+  bus.on('escape', () => { if (player.classList.contains('is-pfs')) windowFs(false); });
+  fsBtn.addEventListener('click', async () => {
+    if (fsEl()) { (document.exitFullscreen || document.webkitExitFullscreen)?.call(document); return; }
+    if (player.classList.contains('is-pfs')) { windowFs(false); return; }
+    if (mini) setMini(false);
+    const req = player.requestFullscreen || player.webkitRequestFullscreen;
+    try {
+      if (!req) throw new Error('no fullscreen');
+      await req.call(player, { navigationUI: 'hide' });
+      if (!fsEl()) throw new Error('refused');
+      screen.orientation?.lock?.('landscape').catch(() => {});
+    } catch { windowFs(true); }
   });
   function setMedia() {
     if (!('mediaSession' in navigator)) return;
@@ -209,14 +267,26 @@ export async function initExplainer({ D, webgl, toast }) {
     jarCount.textContent = fmtINR(jarAt(D, timeline, state.started ? t : TOTAL) * D.due);
   }
   let idle = 0;
+  const stall = { at: -1, for: 0, resync: false };
   ['pointerdown', 'wheel'].forEach(t => stage.addEventListener(t, () => { idle = 0; }, { passive: true }));
   function loop(now) {
     requestAnimationFrame(loop);
     const dt = Math.min(.05, (now - last) / 1000); last = now;
     if (state.playing) {
-      state.time += dt * state.speed;
+      const { si, clip, el, off } = voiceWindow();
+      if (el && si === activeIdx && !el.paused && !el.ended) {
+        // The voice is the master clock, so it is never seeked mid-sentence. A short buffering
+        // pause holds the story; if the audio makes no progress for 0.8s, the story moves on by
+        // itself and the voice is lined up again once it recovers.
+        if (el.currentTime !== stall.at) { stall.at = el.currentTime; stall.for = 0; } else stall.for += dt;
+        if (stall.for < .8) {
+          if (stall.resync && Math.abs(el.currentTime - off) > .3) el.currentTime = off;
+          stall.resync = false;
+          state.time = Math.max(state.time, timeline[si].start + clip.delay + el.currentTime);
+        } else { stall.resync = true; state.time += dt * state.speed; }
+      } else state.time += dt * state.speed;
       if (state.time >= TOTAL) { state.time = TOTAL; pause(); toast('That’s our story so far'); }
-      if (!voiceEl.paused) syncVoice(false);
+      syncVoice(false);
     }
     idle += dt;
     if (document.hidden) return;
@@ -273,7 +343,7 @@ async function build3D(stage, D, timeline) {
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(42, 16 / 11, .1, 100);
-  const baseFov = 42; let fovKick = 0;
+  let baseFov = 42, fovKick = 0;
   const controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true; controls.enablePan = false; controls.minDistance = 5; controls.maxDistance = 16;
   controls.target.set(0, .6, 0); controls.enabled = true;
@@ -367,7 +437,11 @@ async function build3D(stage, D, timeline) {
   function resize() {
     const r = stage.getBoundingClientRect();
     renderer.setSize(r.width, r.height, false); labels.setSize(r.width, r.height);
-    camera.aspect = r.width / r.height; camera.updateProjectionMatrix();
+    camera.aspect = r.width / r.height;
+    // keep the 16:11 framing on taller screens (phones, portrait fullscreen) by widening the view
+    const design = 16 / 11, h = Math.tan(21 * Math.PI / 180);
+    baseFov = camera.aspect < design ? Math.min(80, 2 * Math.atan(h * design / camera.aspect) * 180 / Math.PI) : 42;
+    camera.fov = baseFov; camera.updateProjectionMatrix();
   }
   new ResizeObserver(resize).observe(stage); resize();
 

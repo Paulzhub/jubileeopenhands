@@ -1,36 +1,36 @@
 {
   "s1": {
-    "src": "voice/s1.wav",
+    "src": "voice/s1.mp3",
     "duration": 5.275,
     "text": "This is Jubilee Open Hands. Five friends who decided to save together."
   },
   "s2": {
-    "src": "voice/s2.wav",
+    "src": "voice/s2.mp3",
     "duration": 6.025,
     "text": "Paulz, M S, Elis, Emma, and James each put in five hundred rupees, every month."
   },
   "s3": {
-    "src": "voice/s3.wav",
+    "src": "voice/s3.mp3",
     "duration": 5.975,
     "text": "From June to October, every single member paid. Twenty five hundred rupees, every month."
   },
   "s4": {
-    "src": "voice/s4.wav",
+    "src": "voice/s4.mp3",
     "duration": 3.1,
     "text": "In November, four of five payments came in."
   },
   "s5": {
-    "src": "voice/s5.wav",
+    "src": "voice/s5.mp3",
     "duration": 4.325,
     "text": "Together, we collected fourteen thousand, five hundred rupees."
   },
   "s6": {
-    "src": "voice/s6.wav",
+    "src": "voice/s6.mp3",
     "duration": 10.175,
     "text": "In November, we sponsored the U E S I Churachandpur Diamond Jubilee Celebration. One thousand rupees from each of us, five thousand in all."
   },
   "s7": {
-    "src": "voice/s7.wav",
+    "src": "voice/s7.mp3",
     "duration": 8.475,
     "text": "That leaves nine thousand, five hundred rupees in our jar. Open hands, growing together. Scroll down to explore our numbers."
   }

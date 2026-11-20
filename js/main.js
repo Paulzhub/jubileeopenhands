@@ -1,5 +1,7 @@
 // Jubilee Open Hands — page orchestration (vanilla ES modules).
 import { $, $$, bus, store, prefs, fmtINR, clamp, lerp, hasWebGL, splitLetters } from './core.js';
+import { renderMembers, renderLedger, renderProjection } from './sections.js';
+import { SHEET_URL, REFRESH_SECONDS } from './config.js';
 
 const root = document.documentElement;
 const MEMBER_COLORS = ['#97B3B6', '#B88F7A', '#6E9296', '#874844', '#5E7A6E'];
@@ -409,30 +411,6 @@ function renderKPIs(D) {
   });
 }
 
-/* ---------------- render: members ---------------- */
-function renderMembers(D) {
-  const grid = $('#memberGrid'); grid.innerHTML = '';
-  D.members.forEach((m, i) => {
-    const card = document.createElement('article');
-    card.className = 'mcard reveal'; card.tabIndex = 0; card.dataset.member = m.id;
-    const pending = m.missed.length ? `<span class="badge badge--pending" data-tip="${m.missed.join(', ')} payment of ${fmtINR(D.due)} not received yet" tabindex="0">${m.missed.map(x => x.slice(0, 3)).join(', ')} pending</span>` : '';
-    const streak = m.streak ? `<span class="badge">${m.streak}-month streak</span>` : `<span class="badge">Best streak ${m.best}</span>`;
-    card.setAttribute('aria-label', `${m.name}: paid in ${fmtINR(m.amount)}, sponsored ${fmtINR(m.sponsored)}, ${fmtINR(m.net)} still in the jar. ${m.missed.length ? m.missed.join(', ') + ' pending.' : 'All months paid.'}`);
-    card.innerHTML = `
-      <div class="preview" aria-hidden="true"><ul>${D.months.map((mo, k) => `<li><span>${mo.short}</span><span class="${m.paid[k] ? '' : 'no'}">${m.paid[k] ? '✅ ' + fmtINR(D.due) : 'Pending'}</span></li>`).join('')}${m.sponsored ? `<li class="full"><span>Sponsorship</span><span class="no">−${fmtINR(m.sponsored)}</span></li>` : ''}</ul></div>
-      <div class="mcard__frame" style="--c:${m.color}"><div class="mcard__orb"><span aria-hidden="true">${m.initials}</span></div></div>
-      <div><h3 class="mcard__name"><span class="wave">${m.name}</span></h3></div>
-      <div class="mcard__row"><span class="mcard__amt">${fmtINR(m.amount)}</span><span class="dots" aria-hidden="true">${m.paid.map(p => `<i class="${p ? '' : 'no'}"></i>`).join('')}</span></div>
-      <p class="mcard__meta"><span>Sponsored <b>${fmtINR(m.sponsored)}</b></span><span>In jar <b>${fmtINR(m.net)}</b></span></p>
-      <div class="mcard__row">${streak}${pending}</div>`;
-    grid.append(card);
-    splitLetters($('.wave', card));
-    card.addEventListener('click', e => { if (e.target.closest('.badge--pending')) return; bus.emit('filter', { id: store.get().filter === m.id ? null : m.id }); });
-    card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); } });
-    reveal(card, i);
-  });
-}
-
 /* ---------------- render: investments & expenses ---------------- */
 function renderExpenses(D) {
   const grid = $('#expGrid'); grid.innerHTML = '';
@@ -465,86 +443,6 @@ function renderExpenses(D) {
   });
 }
 
-/* ---------------- render: ledger ---------------- */
-function renderLedger(D) {
-  const track = $('#ledgerTrack'); track.innerHTML = '';
-  const byId = Object.fromEntries(D.members.map(m => [m.id, m]));
-  D.months.forEach((mo, i) => {
-    const li = document.createElement('li');
-    li.className = 'month reveal';
-    const missing = D.members.filter(m => !mo.paid.includes(m.id));
-    li.innerHTML = `<div class="month__card">
-      <button class="month__btn" aria-expanded="false" aria-controls="mb-${i}" data-cursor="Open">
-        <span class="month__top"><span class="month__name">${mo.name}</span><span class="month__yr">${String(mo.num).padStart(2, '0')} · ${mo.year}</span></span>
-        <span class="month__total">${fmtINR(mo.total)}</span>
-        ${mo.spent ? `<span class="month__spend">−${fmtINR(mo.spent)} · ${mo.expenses.map(x => x.kind).join(', ')}</span>` : ''}
-        <span class="month__status"><span>${mo.full ? `<span class="full-mark">✅ All ${mo.paid.length} paid</span>` : `${mo.paid.length} of ${D.members.length} paid`}</span>
-        <span class="month__chev" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span></span>
-      </button>
-      <div class="month__body" id="mb-${i}" role="region" aria-label="${mo.name} payments"><div>
-        <ul class="month__list">
-          ${D.members.map((m, k) => `<li style="--i:${k}"><span>${m.name}</span>${mo.paid.includes(m.id) ? '<span class="ok">✅ ₹500</span>' : '<span class="no">Pending</span>'}</li>`).join('')}
-          ${mo.expenses.map((x, k) => `<li style="--i:${D.members.length + k}" class="spend"><span>${x.kind}: ${x.title}</span><span class="no">−${fmtINR(x.amount)}</span></li>`).join('')}
-          <li style="--i:${D.members.length + 1}"><b>Collected so far</b><b>${fmtINR(mo.cum)}</b></li>
-          <li style="--i:${D.members.length + 2}"><b>Balance in jar</b><b>${fmtINR(mo.balance)}</b></li>
-        </ul>
-      </div></div></div>`;
-    track.append(li);
-    const btn = $('.month__btn', li);
-    btn.addEventListener('click', () => {
-      const open = btn.getAttribute('aria-expanded') !== 'true';
-      btn.setAttribute('aria-expanded', open);
-      $('.month__card', li).classList.toggle('is-full-open', open && mo.full);
-      if (open && mo.full) confetti(btn);
-      if (open) live(`${mo.name}: ${mo.paid.length} of ${D.members.length} paid, ${fmtINR(mo.total)}. Balance ${fmtINR(mo.balance)}.${missing.length ? ' Pending: ' + missing.map(m => m.name).join(', ') + '.' : ''}`);
-      bus.emit('ledger:resize');
-    });
-    reveal(li, i % 3);
-  });
-  initLedgerPin(D);
-}
-
-function initLedgerPin(D) {
-  const sec = $('#ledger'), move = $('#ledgerMove'), ghost = $('#ghostNum'), path = $('#ledgerPath'), svg = $('#ledgerLine');
-  let pinned = false, len = 0, lastIdx = -1;
-  const layout = () => {
-    pinned = innerWidth >= 900 && !prefs.reduced;
-    sec.classList.toggle('is-pinned', pinned);
-    move.style.transform = '';
-    if (!pinned) { sec.style.height = ''; return; }
-    const dist = move.scrollWidth - innerWidth;
-    sec.style.height = (innerHeight + Math.max(0, dist)) + 'px';
-    // running-total line across card centres
-    const cards = $$('.month', move);
-    const w = move.scrollWidth, h = 150;
-    svg.setAttribute('viewBox', `0 0 ${w} ${h}`); svg.style.width = w + 'px'; svg.style.height = h + 'px';
-    const top = Math.max(...D.months.map(m => m.balance));
-    const pts = cards.map((c, i) => [c.offsetLeft + c.offsetWidth / 2, h - 16 - (D.months[i].balance / top) * (h - 40)]);
-    path.setAttribute('d', pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' '));
-    len = path.getTotalLength(); path.style.strokeDasharray = len;
-    onScroll();
-  };
-  const onScroll = () => {
-    if (!pinned) return;
-    const r = sec.getBoundingClientRect();
-    const span = sec.offsetHeight - innerHeight;
-    const p = clamp(-r.top / (span || 1), 0, 1);
-    move.style.transform = `translate3d(${-p * Math.max(0, move.scrollWidth - innerWidth)}px,0,0)`;
-    path.style.strokeDashoffset = len * (1 - p);
-    const idx = Math.round(p * (D.months.length - 1));
-    if (idx !== lastIdx) {
-      lastIdx = idx; ghost.textContent = String(D.months[idx].num).padStart(2, '0');
-      ghost.classList.remove('roll'); void ghost.offsetWidth; ghost.classList.add('roll');
-    }
-  };
-  addEventListener('scroll', onScroll, { passive: true });
-  addEventListener('resize', layout);
-  bus.on('ledger:resize', () => setTimeout(layout, 500));
-  prefs.onChange(layout);
-  document.fonts?.ready.then(layout);
-  layout();
-}
-
 /* ---------------- confetti (success feedback) ---------------- */
 function confetti(fromEl) {
   if (prefs.reduced) { toast('Fully paid month'); return; }
@@ -567,10 +465,7 @@ function confetti(fromEl) {
 function live(msg) { const l = $('#live'); l.textContent = ''; setTimeout(() => l.textContent = msg, 30); }
 
 /* ---------------- filter (shared state) ---------------- */
-bus.on('filter', ({ id }) => {
-  store.set({ filter: id });
-  $$('.mcard[data-member]').forEach(c => { c.classList.toggle('is-hl', c.dataset.member === id); c.classList.toggle('is-dim', !!id && c.dataset.member !== id); });
-});
+bus.on('filter', ({ id }) => { store.set({ filter: id }); });
 
 /* ---------------- shortcuts + dialogs ---------------- */
 $$('dialog [data-close]').forEach(b => b.addEventListener('click', () => b.closest('dialog').close()));
@@ -593,12 +488,41 @@ const webgl = hasWebGL();
 if (!webgl) root.classList.add('no-webgl');
 
 track(document.fonts ? document.fonts.ready : null, 1);
-const ledgerP = track(fetch('data/ledger.json').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }), 2);
+
+/* ---------------- data source: Google Sheet (live) or data/ledger.json ---------------- */
+// Strip markup characters from every string that comes from the sheet before it is rendered.
+const clean = v => typeof v === 'string' ? v.replace(/[<>]/g, '').trim() : Array.isArray(v) ? v.map(clean) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, clean(x)])) : v;
+const valid = L => L && Array.isArray(L.members) && L.members.length && Array.isArray(L.months) && L.months.length && +L.monthlyDue > 0;
+async function fetchJSON(url, ms = 8000) {
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ms);
+  try { const r = await fetch(url, { signal: ctl.signal, cache: 'no-store' }); if (!r.ok) throw new Error(r.status); return await r.json(); }
+  finally { clearTimeout(t); }
+}
+let source = 'file', lastJSON = '', lastAt = null;
+async function loadLedger() {
+  if (SHEET_URL) {
+    try { const L = clean(await fetchJSON(SHEET_URL)); if (valid(L)) { source = 'sheet'; return L; } console.warn('Sheet data looks incomplete; using the built-in copy.'); }
+    catch (e) { console.warn('Could not reach the Google Sheet; using the built-in copy.', e); }
+  }
+  source = 'file';
+  return fetchJSON('data/ledger.json');
+}
+function showSource() {
+  const el = $('#dataSrc'); if (!el) return;
+  const when = lastAt ? lastAt.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }) : '';
+  el.textContent = source === 'sheet' ? `Live from our Google Sheet · checked ${when}` : SHEET_URL ? 'Showing the saved copy (sheet unreachable)' : 'Showing the saved copy of our ledger';
+  el.classList.toggle('is-live', source === 'sheet');
+}
+function renderAll(D) {
+  renderKPIs(D); renderMembers(D, { initTilt }); renderExpenses(D); renderLedger(D, { confetti, live }); renderProjection(D);
+}
+const ledgerP = track(loadLedger(), 2);
 
 ledgerP.then(raw => {
-  const D = computeLedger(raw);
+  let D = computeLedger(raw);
+  lastJSON = JSON.stringify(raw); lastAt = new Date(); showSource();
   store.set({ data: D });
-  renderKPIs(D); renderMembers(D); renderExpenses(D); renderLedger(D);
+  renderAll(D);
   // explainer (player works without WebGL; the 3D stage is optional)
   track(import('./explainer.js').then(m => m.initExplainer({ D, webgl, toast })), 3);
   // background orbs
@@ -607,12 +531,33 @@ ledgerP.then(raw => {
   const io = new IntersectionObserver(es => {
     if (!es.some(e => e.isIntersecting)) return;
     io.disconnect();
-    import('./charts.js').then(m => m.initCharts({ D, webgl, toast }));
+    import('./charts.js').then(m => m.initCharts({ D: store.get().data, webgl, toast }));
   }, { rootMargin: '600px 0px' });
   io.observe($('#insights'));
   // deep link like #insights-share
   const h = location.hash.slice(1);
   if (h.startsWith('insights-')) { store.set({ view: h.split('-')[1] }); }
+  // live updates from the sheet
+  if (SHEET_URL) {
+    const refresh = async () => {
+      if (document.hidden) return;
+      try {
+        const L = clean(await fetchJSON(SHEET_URL));
+        lastAt = new Date();
+        if (!valid(L)) return showSource();
+        source = 'sheet';
+        const json = JSON.stringify(L);
+        if (json !== lastJSON) {
+          lastJSON = json; D = computeLedger(L);
+          store.set({ data: D }); renderAll(D); bus.emit('data', D);
+          toast('Updated from our Google Sheet');
+        }
+      } catch (e) { console.warn('Sheet refresh failed', e); }
+      showSource();
+    };
+    setInterval(refresh, REFRESH_SECONDS * 1000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+  }
 }).catch(err => {
   console.error(err);
   finishLoad();
