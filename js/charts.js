@@ -80,6 +80,8 @@ export async function initCharts({ D, webgl, toast }) {
     if (user) try { history.replaceState(null, '', '#insights-' + view); } catch {}
   }
   select(store.get().view || 'overview', false);
+  // live data from the Google Sheet: rebuild the current view with the new numbers
+  bus.on('data', d => { D = d; select(store.get().view || 'overview', false); });
 
   // ---- 2D fallback (no WebGL) ----
   function fallback2D() {

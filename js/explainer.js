@@ -52,51 +52,62 @@ export async function initExplainer({ D, webgl, toast }) {
   const state = { time: 0, playing: false, speed: 1, cc: true, started: false, scene: -1 };
 
   // ---- audio ----
-  // Each clip (small MP3) is downloaded once into memory and gets its own <audio> element,
-  // so changing scenes never re-downloads or re-buffers. While a clip is playing, its own
-  // clock drives the timeline, so the voice is never seeked mid-sentence (seeks cause gaps).
-  const clips = new Map();
-  timeline.forEach((s, i) => {
+  // ONE shared <audio> element plays every clip. Browsers (iPhone especially) only allow sound
+  // on an element that was started inside a tap, so we start it inside the Play tap and then
+  // only swap its source per scene. Clips are small MP3s, pre-downloaded into memory.
+  const voice = new Audio();
+  voice.preload = 'auto'; voice.preservesPitch = true; voice.setAttribute('playsinline', '');
+  const blobs = new Map();
+  timeline.forEach(s => {
     if (!s.voice) return;
-    const el = new Audio();
-    el.preload = 'auto'; el.preservesPitch = true;
-    clips.set(i, el);
-    fetch(s.voice.src).then(r => (r.ok ? r.blob() : null)).then(b => {
-      // only swap in the in-memory copy if this clip has not started streaming
-      if (b && (!el.getAttribute('src') || (el.paused && el.currentTime === 0))) el.src = URL.createObjectURL(b);
-    }).catch(() => {});
+    fetch(s.voice.src).then(r => (r.ok ? r.blob() : null)).then(b => { if (b) blobs.set(s.voice.src, URL.createObjectURL(b)); }).catch(() => {});
   });
-  let unlocked = false, activeIdx = -1;
+  const srcFor = clip => blobs.get(clip.src) || clip.src;
+  let unlocked = false, activeIdx = -1, curSrc = null;
   const hint = $('#soundHint');
-  function unlock() {
-    if (unlocked) return; unlocked = true;
-    // Prime every clip inside the gesture (needed on iPhone), except the one about to speak.
-    clips.forEach((el, i) => {
-      if (i === activeIdx) return;
-      el.muted = true;
-      el.play().then(() => { if (i !== activeIdx) { el.pause(); el.currentTime = 0; } el.muted = false; }).catch(() => { el.muted = false; });
-    });
-    hint.hidden = true;
-    syncVoice(true);
+  function setClip(clip) {
+    if (curSrc === clip.src) return false;
+    voice.src = srcFor(clip); curSrc = clip.src;
+    return true;
   }
-  ['pointerdown', 'keydown'].forEach(t => addEventListener(t, unlock, { once: true, capture: true }));
-  const pauseAll = keep => clips.forEach((el, i) => { if (i !== keep && !el.paused) el.pause(); });
+  // Called inside every user gesture until sound is allowed (Play, the sound prompt, any tap).
+  function unlock() {
+    if (unlocked) return;
+    const first = timeline.find(s => s.voice);
+    if (!first) return;
+    if (!curSrc) setClip(first.voice);
+    voice.muted = true;
+    const p = voice.play();
+    unlocked = true; hint.hidden = true;
+    Promise.resolve(p).then(() => {
+      if (activeIdx < 0) voice.pause();
+      voice.muted = false;
+      syncVoice(true);
+    }).catch(() => { voice.muted = false; unlocked = false; });
+  }
+  ['pointerdown', 'keydown', 'touchend'].forEach(t => addEventListener(t, () => { if (!unlocked) unlock(); }, { capture: true }));
+  hint.addEventListener('click', () => { unlock(); syncVoice(true); });
+  const pauseAll = () => { if (!voice.paused) voice.pause(); };
   function voiceWindow() {
     const si = segAt(state.time), seg = timeline[si], clip = seg.voice;
-    return { si, clip, el: clips.get(si), off: state.time - seg.start - (clip?.delay || 0) };
+    return { si, clip, el: clip && curSrc === clip.src ? voice : null, off: state.time - seg.start - (clip?.delay || 0) };
   }
   function syncVoice(force) {
-    const { si, clip, el, off } = voiceWindow();
-    const want = state.playing && store.get().voice && clip && el && off >= 0 && off < clip.duration;
-    pauseAll(want ? si : -1);
-    if (!want) { activeIdx = -1; return; }
+    const { si, clip, off } = voiceWindow();
+    const want = state.playing && store.get().voice && clip && off >= 0 && off < clip.duration;
+    if (!want) { pauseAll(); activeIdx = -1; return; }
     if (!unlocked) { hint.hidden = false; return; }
-    if (!el.getAttribute('src')) el.src = clip.src; // in-memory copy not ready yet: stream it
+    const fresh = setClip(clip);
     // entering a clip (or seeking) lines it up with the story; otherwise leave it alone
-    if ((force || activeIdx !== si) && Math.abs(el.currentTime - off) > .15) el.currentTime = off;
+    if (fresh || force || activeIdx !== si) {
+      const seekTo = () => { if (Math.abs(voice.currentTime - off) > .15) try { voice.currentTime = off; } catch {} };
+      if (voice.readyState >= 1) seekTo(); else voice.addEventListener('loadedmetadata', seekTo, { once: true });
+    }
     activeIdx = si;
-    el.playbackRate = state.speed;
-    if (el.paused && !el.ended) el.play().catch(() => { hint.hidden = false; });
+    voice.playbackRate = state.speed;
+    if (voice.paused) voice.play().catch(err => {
+      if (err && err.name === 'NotAllowedError') { unlocked = false; hint.hidden = false; }
+    });
   }
 
   const soundBtn = $('#soundBtn');
@@ -104,7 +115,7 @@ export async function initExplainer({ D, webgl, toast }) {
     store.set({ voice: on });
     soundBtn.setAttribute('aria-pressed', on); soundBtn.setAttribute('aria-label', on ? 'Voiceover on' : 'Voiceover off');
     try { localStorage.setItem('joh-voice', on ? '1' : '0'); } catch {}
-    if (!on) pauseAll(-1); else syncVoice(true);
+    if (!on) pauseAll(); else { unlock(); syncVoice(true); }
   }
   try { if (localStorage.getItem('joh-voice') === '0') setVoice(false); } catch {}
   soundBtn.addEventListener('click', () => { const on = !store.get().voice; setVoice(on); toast(on ? 'Voiceover on' : 'Voiceover muted'); });
@@ -118,7 +129,7 @@ export async function initExplainer({ D, webgl, toast }) {
     syncVoice(true); setMedia();
   }
   function pause() {
-    state.playing = false; pauseAll(-1); activeIdx = -1;
+    state.playing = false; pauseAll(); activeIdx = -1;
     player.classList.remove('is-playing'); playBtn.setAttribute('aria-label', 'Play');
     if (three) three.controls.enabled = true;
     setMedia();
@@ -132,7 +143,7 @@ export async function initExplainer({ D, webgl, toast }) {
   scrubInput.addEventListener('input', () => seek(scrubInput.value / 1000 * TOTAL));
   $('#speedSel').addEventListener('change', e => {
     state.speed = +e.target.value;
-    clips.forEach(el => { el.playbackRate = state.speed; });
+    voice.playbackRate = state.speed;
     toast(`Speed ${state.speed}×`);
   });
 
