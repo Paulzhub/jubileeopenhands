@@ -8,7 +8,10 @@ export const fmtBig = v => (Math.abs(v) >= 1e7 ? compactINR.format(v) : fmtINR(M
 /* Accessible tab list with a sliding indicator and arrow-key navigation. */
 function tablist(el, onSelect) {
   const tabs = () => $$('[role=tab]', el), ind = $('.ptabs__ind', el);
-  const move = b => { if (!b || !ind) return; ind.style.width = b.offsetWidth + 'px'; ind.style.transform = `translateX(${b.offsetLeft}px)`; b.scrollIntoView({ block: 'nearest', inline: 'nearest' }); };
+  const move = b => { if (!b || !ind) return; ind.style.width = b.offsetWidth + 'px'; ind.style.transform = `translateX(${b.offsetLeft}px)`;
+    // Scroll only the tab strip sideways; never move the page.
+    const l = b.offsetLeft, r = l + b.offsetWidth;
+    if (l < el.scrollLeft) el.scrollLeft = l - 8; else if (r > el.scrollLeft + el.clientWidth) el.scrollLeft = r - el.clientWidth + 8; };
   el.addEventListener('click', e => { const b = e.target.closest('[role=tab]'); if (b) onSelect(b.dataset.id, true); });
   el.addEventListener('keydown', e => {
     const list = tabs(), i = list.indexOf(document.activeElement); if (i < 0) return;

@@ -6,14 +6,16 @@
  * 2. Deploy → New deployment → Web app (Execute as: Me, Who has access: Anyone).
  * 3. Paste the /exec URL into js/config.js (SHEET_URL) in the website repo.
  *
- * From then on, edit the sheet: tick a box when someone pays, add a row for a new month
- * (or use the "Jubilee" menu → "Add next month"), add a row to Expenses when money goes out.
+ * From then on, edit the sheet: tick a box when someone pays and add a row to Expenses when
+ * money goes out. A new, unticked row for the month is added by itself on the 1st of every
+ * month just after 00:00 IST (see autoAddMonth). The "Jubilee" menu can also add one by hand.
  */
 
 const TABS = { settings: 'Settings', members: 'Members', contributions: 'Contributions', expenses: 'Expenses' };
 
 /* ---------- web app: the website reads this ---------- */
 function doGet() {
+  try { ensureMonthlyTrigger_(); } catch (e) { console.warn('Monthly trigger check failed: ' + e); }
   const data = buildLedger_(SpreadsheetApp.getActiveSpreadsheet());
   return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
 }
@@ -123,6 +125,7 @@ function setup() {
 
   const def = ss.getSheetByName('Sheet1');
   if (def && ss.getSheets().length > 1 && def.getLastRow() === 0) ss.deleteSheet(def);
+  ensureMonthlyTrigger_(true);
   SpreadsheetApp.getActiveSpreadsheet().toast('Tabs created. Next: Deploy → New deployment → Web app.', 'Jubilee Open Hands', 8);
 }
 
@@ -147,4 +150,46 @@ function addNextMonth() {
 function previewData() {
   const json = JSON.stringify(buildLedger_(SpreadsheetApp.getActiveSpreadsheet()), null, 2);
   SpreadsheetApp.getUi().showModalDialog(HtmlService.createHtmlOutput('<pre style="font:12px monospace;white-space:pre-wrap">' + json.replace(/</g, '&lt;') + '</pre>').setWidth(600).setHeight(500), 'What the website will read');
+}
+
+/* ---------- automatic monthly row ---------- */
+const IST = 'Asia/Kolkata';
+
+/**
+ * Runs from a time trigger on the 1st of each month, just after 00:00 IST.
+ * Adds ONE unticked row for the current month only, and only if that month has no row yet.
+ * It never back-fills missed months or adds future ones.
+ */
+function autoAddMonth() {
+  const now = new Date();
+  if (Utilities.formatDate(now, IST, 'd') !== '1') return; // only ever acts on the 1st (IST)
+  const month = Utilities.formatDate(now, IST, 'yyyy-MM');
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TABS.contributions);
+  if (!sh) return;
+  const last = sh.getLastRow(), cols = sh.getLastColumn();
+  const existing = last > 1 ? sh.getRange(2, 1, last - 1, 1).getDisplayValues().map(r => String(r[0]).trim().slice(0, 7)) : [];
+  if (existing.indexOf(month) !== -1) return; // already there
+  sh.getRange(last + 1, 1).setNumberFormat('@').setValue(month);
+  if (cols > 1) sh.getRange(last + 1, 2, 1, cols - 1).insertCheckboxes(); // unticked
+}
+
+/**
+ * Makes sure exactly one monthly trigger for autoAddMonth exists. You never need to run this:
+ * setup() calls it, and the web app re-checks it a few times a day whenever the website asks for data.
+ */
+function installMonthlyTrigger() { ensureMonthlyTrigger_(true); }
+
+function ensureMonthlyTrigger_(force) {
+  const cache = CacheService.getScriptCache();
+  if (!force && cache.get('monthlyTriggerOk')) return;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return;
+  try {
+    const mine = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'autoAddMonth');
+    mine.slice(1).forEach(t => ScriptApp.deleteTrigger(t)); // keep only one
+    if (!mine.length) {
+      ScriptApp.newTrigger('autoAddMonth').timeBased().onMonthDay(1).atHour(0).nearMinute(0).inTimezone(IST).create();
+    }
+    cache.put('monthlyTriggerOk', '1', 6 * 60 * 60);
+  } finally { lock.releaseLock(); }
 }
